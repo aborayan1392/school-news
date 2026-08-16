@@ -1,13 +1,104 @@
 name: Teacher Portfolio Temporary Build
+
 on:
   push:
     branches: ['agent/teacher-portfolio-build']
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+
     steps:
-      - uses: actions/checkout@v4
-      - run: echo temporary-build-probe
+      - name: Checkout temporary build branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore and verify project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat build-input/teacher/project.part*.b64 | tr -d '\n\r ' | base64 -d > /tmp/teacher-project.zip
+          echo 'f25b17085a39b3148c73827db55b4b22c8d85772a245708e4230bf8f67df1d00  /tmp/teacher-project.zip' | sha256sum -c -
+          unzip -q /tmp/teacher-project.zip
+          test -f VideoSplitterKotlin/app/src/main/java/com/aborayan/teacherportfolio/MainActivity.kt
+          grep -q 'namespace = "com.aborayan.teacherportfolio"' VideoSplitterKotlin/app/build.gradle.kts
+          ! grep -q 'android.permission.INTERNET' VideoSplitterKotlin/app/src/main/AndroidManifest.xml
+
+      - name: Embed Cairo font and license
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p VideoSplitterKotlin/app/src/main/res/font VideoSplitterKotlin/app/src/main/assets
+          curl -fL --retry 4 --retry-delay 2 \
+            -o VideoSplitterKotlin/app/src/main/res/font/cairo.ttf \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf'
+          curl -fL --retry 4 --retry-delay 2 \
+            -o VideoSplitterKotlin/app/src/main/assets/OFL-Cairo.txt \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/OFL.txt'
+          test "$(stat -c%s VideoSplitterKotlin/app/src/main/res/font/cairo.ttf)" -gt 100000
+          test -s VideoSplitterKotlin/app/src/main/assets/OFL-Cairo.txt
+
+      - name: Compile, test, lint and assemble release
+        working-directory: VideoSplitterKotlin
+        run: gradle --no-daemon --stacktrace --warning-mode all clean testReleaseUnitTest lintRelease assembleRelease
+
+      - name: Align and inspect release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          UNSIGNED='VideoSplitterKotlin/app/build/outputs/apk/release/app-release-unsigned.apk'
+          test -s "$UNSIGNED"
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" /tmp/teacher-portfolio-v1.0.0-aligned-unsigned.apk
+          unzip -tq /tmp/teacher-portfolio-v1.0.0-aligned-unsigned.apk
+          "$BT/aapt2" dump badging /tmp/teacher-portfolio-v1.0.0-aligned-unsigned.apk | tee /tmp/apk-badging.txt
+          grep -q "package: name='com.aborayan.teacherportfolio'" /tmp/apk-badging.txt
+          grep -Eq "application-label(-ar)?:'ملف إنجاز المعلم'" /tmp/apk-badging.txt
+          sha256sum /tmp/teacher-portfolio-v1.0.0-aligned-unsigned.apk > /tmp/aligned-apk.sha256
+          test -s "$BT/lib/apksigner.jar"
+
+      - name: Collect validation outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp /tmp/teacher-portfolio-v1.0.0-aligned-unsigned.apk dist/
+          cp /tmp/apk-badging.txt dist/
+          cp /tmp/aligned-apk.sha256 dist/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" dist/
+          cp VideoSplitterKotlin/app/build/reports/lint-results-release.html dist/ || true
+          cp VideoSplitterKotlin/app/build/reports/lint-results-release.xml dist/ || true
+          ls -lh dist
+
+      - name: Upload validated unsigned release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-portfolio-native-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 3
