@@ -1,0 +1,13 @@
+name: Teacher Portfolio Temporary Build
+on:
+  push:
+    branches: ['agent/teacher-portfolio-build']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo temporary-build-probe
