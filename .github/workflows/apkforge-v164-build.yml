@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - build/apkforge-v164-jar-only-20260821
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
