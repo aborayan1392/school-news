@@ -1,0 +1,91 @@
+name: APKForge v1.6.4 JAR-only Fix
+
+on:
+  push:
+    branches:
+      - build/apkforge-v164-jar-only-20260821
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Restore patched APKForge source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat ci/apkforge-v164.b64.part* > /tmp/apkforge.b64
+          base64 -d /tmp/apkforge.b64 > /tmp/APKForge-v1.6.4.zip
+          echo "a3fc2cfde878d65baa5a4d52eb06520a96397675c97db698bd272f7d72170e6c  /tmp/APKForge-v1.6.4.zip" | sha256sum -c -
+          rm -rf apkforge-build
+          mkdir -p apkforge-build
+          unzip -q /tmp/APKForge-v1.6.4.zip -d apkforge-build
+          test -f apkforge-build/APKForge-v164/app/build.gradle.kts
+
+      - name: Prepare Android toolchain assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-34" "platforms;android-35" "platforms;android-36"
+
+          PROJ="$GITHUB_WORKSPACE/apkforge-build/APKForge-v164"
+          mkdir -p "$PROJ/app/src/main/assets/toolchain"
+          mkdir -p "$PROJ/app/src/main/jniLibs/arm64-v8a"
+          cp "$ANDROID_SDK_ROOT/platforms/android-34/android.jar" "$PROJ/app/src/main/assets/toolchain/android-34.jar"
+          cp "$ANDROID_SDK_ROOT/platforms/android-35/android.jar" "$PROJ/app/src/main/assets/toolchain/android-35.jar"
+          cp "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" "$PROJ/app/src/main/assets/toolchain/android-36.jar"
+
+          curl -fL --retry 3 "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.3.21/kotlin-stdlib-2.3.21.jar" \
+            -o "$PROJ/app/src/main/assets/toolchain/kotlin-stdlib.jar"
+          curl -fL --retry 3 "https://github.com/ReVanced/aapt2/releases/download/v1.1.0/aapt2-arm64-v8a" \
+            -o "$PROJ/app/src/main/jniLibs/arm64-v8a/libapkforge_aapt2.so"
+          chmod 755 "$PROJ/app/src/main/jniLibs/arm64-v8a/libapkforge_aapt2.so"
+
+          test "$(stat -c%s "$PROJ/app/src/main/assets/toolchain/android-35.jar")" -gt 1000000
+          test "$(stat -c%s "$PROJ/app/src/main/assets/toolchain/kotlin-stdlib.jar")" -gt 100000
+          test "$(stat -c%s "$PROJ/app/src/main/jniLibs/arm64-v8a/libapkforge_aapt2.so")" -gt 100000
+
+      - name: Run tests and build APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd apkforge-build/APKForge-v164
+          gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Verify APK contents
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APK="apkforge-build/APKForge-v164/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep 'assets/toolchain/android-35.jar'
+          unzip -l "$APK" | grep 'assets/toolchain/kotlin-stdlib.jar'
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libapkforge_aapt2.so'
+          cp "$APK" APKForge-v1.6.4-JAR-FIX.apk
+          sha256sum APKForge-v1.6.4-JAR-FIX.apk > APKForge-v1.6.4-JAR-FIX.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: APKForge-v1.6.4-JAR-FIX
+          path: |
+            APKForge-v1.6.4-JAR-FIX.apk
+            APKForge-v1.6.4-JAR-FIX.sha256
+          if-no-files-found: error
