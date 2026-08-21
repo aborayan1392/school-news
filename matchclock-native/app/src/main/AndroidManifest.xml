@@ -3,13 +3,14 @@
     <application
         android:allowBackup="true"
         android:fullBackupContent="true"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="ساعات التوقيت"
         android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
-            android:name=".RefereeActivity"
+            android:name=".RefereeActivityPro"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
             android:screenOrientation="unspecified">
