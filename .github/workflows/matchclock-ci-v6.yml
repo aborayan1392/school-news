@@ -1,0 +1,66 @@
+name: MatchClock APK CI V8
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+
+      - name: Apply v1.4.0 modern UI patch
+        run: |
+          awk 'BEGIN{f=0} /python3 - <<'\''PY'\''/{f=1;next} f && /^          PY$/{exit} f{sub(/^          /,"");print}' .github/workflows/matchclock-ci-v7.yml > /tmp/modern_patch.py
+          python3 /tmp/modern_patch.py
+
+      - name: Verify modern UI patch
+        run: |
+          grep -q 'versionName = "1.4.0"' matchclock-native/app/build.gradle.kts
+          grep -q 'private fun bottomNavigation' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'private fun matchesScreen' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'private fun modesScreen' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'private fun appSettingsScreen' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'String.format(java.util.Locale.US' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          test -f matchclock-native/app/src/main/res/drawable/ic_shield_modern.xml
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build APK
+        run: gradle -p matchclock-native :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          mkdir -p verified
+          cp matchclock-native/app/build/outputs/apk/debug/app-debug.apk verified/MatchClock-v1.4.0.apk
+          unzip -t verified/MatchClock-v1.4.0.apk > verified/zip-integrity.txt
+          $ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose --print-certs verified/MatchClock-v1.4.0.apk > verified/signature-report.txt
+          $ANDROID_HOME/build-tools/36.0.0/aapt dump badging verified/MatchClock-v1.4.0.apk > verified/apk-info.txt
+          sha256sum verified/MatchClock-v1.4.0.apk > verified/SHA256SUMS.txt
+          grep -q "package: name='com.aborayan.matchclock' versionCode='5' versionName='1.4.0'" verified/apk-info.txt
+          grep -q "launchable-activity: name='com.aborayan.matchclock.SmartRefereeActivity'" verified/apk-info.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchClock-v1.4.0-Modern-APK
+          path: verified/
+          if-no-files-found: error
+          retention-days: 7
