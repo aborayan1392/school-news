@@ -31,16 +31,18 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          sha256sum ci/apkforge-v164.b64.part*
-          echo "89908e04f7919cedc1f956ac8e5758228c9d85311ca6014e3923387c156dfb76  ci/apkforge-v164.b64.part01" | sha256sum -c - || true
-          echo "e30fb21f29dcf1d72eda9d3084cc327dfb3c5a6fdeb956a5dbcda5cc6a8d72ef  ci/apkforge-v164.b64.part02" | sha256sum -c - || true
-          echo "e2d47a5fe1fa54b246f9c96ec9ccf64ebf1012e5c4bb3440dfb16ad9cb78ed28  ci/apkforge-v164.b64.part03" | sha256sum -c - || true
-          echo "a64b4fde1b2eccd31ddb84e3753f9bd125c83492ee143765e707274332269ab4  ci/apkforge-v164.b64.part04" | sha256sum -c - || true
-          echo "b67d669cc91440aa722c365e56071f663e20c6266fc536d6b49cfd66fd285864  ci/apkforge-v164.b64.part05" | sha256sum -c - || true
-          echo "c311697740755d50d70284c0c2e53f9acbcb48cac5058b5d09d62e73e5f7ec8d  ci/apkforge-v164.b64.part06" | sha256sum -c - || true
-          echo "3594d95708b1d333311f74e9bbfac3fa47a811b7d8efbcde7059347b89328e38  ci/apkforge-v164.b64.part07" | sha256sum -c - || true
-          echo "5d6f715d7b902a4f252deff6ca44276a5a6da145f9b30dc2e440d311814c14cb  ci/apkforge-v164.b64.part08" | sha256sum -c - || true
-          cat ci/apkforge-v164.b64.part* > /tmp/apkforge.b64
+          echo "89908e04f7919cedc1f956ac8e5758228c9d85311ca6014e3923387c156dfb76  ci/apkforge-v164.b64.part01" | sha256sum -c -
+          echo "e30fb21f29dcf1d72eda9d3084cc327dfb3c5a6fdeb956a5dbcda5cc6a8d72ef  ci/apkforge-v164.b64.part02" | sha256sum -c -
+          echo "e2d47a5fe1fa54b246f9c96ec9ccf64ebf1012e5c4bb3440dfb16ad9cb78ed28  ci/apkforge-v164.b64.part03" | sha256sum -c -
+          echo "a64b4fde1b2eccd31ddb84e3753f9bd125c83492ee143765e707274332269ab4  ci/apkforge-v164.b64.part04" | sha256sum -c -
+          echo "b67d669cc91440aa722c365e56071f663e20c6266fc536d6b49cfd66fd285864  ci/apkforge-v164.b64.part05" | sha256sum -c -
+          echo "c311697740755d50d70284c0c2e53f9acbcb48cac5058b5d09d62e73e5f7ec8d  ci/apkforge-v164.b64.part06" | sha256sum -c -
+          echo "86c34d6ef70e8359eb65a0a6f19c5e28f0cbdca066b39faf1ccdf57a8dfdbc74  ci/apkforge-v164.b64.part07c1" | sha256sum -c -
+          echo "20bd219dbf9c192cee157c35e58adea6989d463ac02cc257552682f3beeb2a08  ci/apkforge-v164.b64.part07c2" | sha256sum -c -
+          echo "d1d0ad6095fa550c75c660b9ee11e0ec3b5d700c4358b53fe107e50d57c84013  ci/apkforge-v164.b64.part07c3" | sha256sum -c -
+          echo "f4cf9de19de11939e5f8b15d368b4e89bd4af573cfb9e13fff757d1d0808588c  ci/apkforge-v164.b64.part07c4" | sha256sum -c -
+          echo "5d6f715d7b902a4f252deff6ca44276a5a6da145f9b30dc2e440d311814c14cb  ci/apkforge-v164.b64.part08" | sha256sum -c -
+          cat ci/apkforge-v164.b64.part01 ci/apkforge-v164.b64.part02 ci/apkforge-v164.b64.part03 ci/apkforge-v164.b64.part04 ci/apkforge-v164.b64.part05 ci/apkforge-v164.b64.part06 ci/apkforge-v164.b64.part07c1 ci/apkforge-v164.b64.part07c2 ci/apkforge-v164.b64.part07c3 ci/apkforge-v164.b64.part07c4 ci/apkforge-v164.b64.part08 > /tmp/apkforge.b64
           base64 -d /tmp/apkforge.b64 > /tmp/APKForge-v1.6.4.zip
           echo "a3fc2cfde878d65baa5a4d52eb06520a96397675c97db698bd272f7d72170e6c  /tmp/APKForge-v1.6.4.zip" | sha256sum -c -
           rm -rf apkforge-build
