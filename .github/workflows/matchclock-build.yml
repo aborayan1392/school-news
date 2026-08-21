@@ -93,3 +93,5 @@ jobs:
           path: diagnostics/*
           if-no-files-found: warn
           retention-days: 7
+
+# CI synchronization marker: 2026-08-21
