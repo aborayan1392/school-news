@@ -1,0 +1,121 @@
+name: APKForge v1.6.5 Install Fix
+
+on:
+  push:
+    branches:
+      - build/apkforge-v165-install-fix-20260821
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Restore APKForge v1.6.4 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat ci/apkforge-v164.b64.part01 ci/apkforge-v164.b64.part02 ci/apkforge-v164.b64.part03 ci/apkforge-v164.b64.part04 ci/apkforge-v164.b64.part05 ci/apkforge-v164.b64.part06 ci/apkforge-v164.b64.part07c1 ci/apkforge-v164.b64.part07c2 ci/apkforge-v164.b64.part07c3 ci/apkforge-v164.b64.part07c4 ci/apkforge-v164.b64.part08 > /tmp/apkforge.b64
+          base64 -d /tmp/apkforge.b64 > /tmp/APKForge-v1.6.4.zip
+          echo "a3fc2cfde878d65baa5a4d52eb06520a96397675c97db698bd272f7d72170e6c  /tmp/APKForge-v1.6.4.zip" | sha256sum -c -
+          rm -rf apkforge-build
+          mkdir -p apkforge-build
+          unzip -q /tmp/APKForge-v1.6.4.zip -d apkforge-build
+          test -f apkforge-build/APKForge-v164/app/build.gradle.kts
+
+      - name: Apply v1.6.5 installability fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('apkforge-build/APKForge-v164/app/src/main/java/com/aboryan/apkforge/SourceProjectBuilder.kt')
+          s = p.read_text()
+          marker = 'import com.android.tools.r8.OutputMode\n'
+          if 'import com.reandroid.apk.ApkModule' not in s:
+              s = s.replace(marker, marker + 'import com.reandroid.apk.ApkModule\nimport com.reandroid.archive.ByteInputSource\n')
+          start = s.index('    private fun mergeDex(resourceApk: File, dexFiles: List<File>, output: File) {')
+          end = s.index('\n}\n\nclass SourceBuildException', start)
+          replacement = '''    private fun mergeDex(resourceApk: File, dexFiles: List<File>, output: File) {
+              output.parentFile?.mkdirs()
+              if (output.exists()) output.delete()
+              ApkModule.loadApkFile(resourceApk).use { module ->
+                  dexFiles.forEach { dex ->
+                      module.add(ByteInputSource(dex.readBytes(), dex.name))
+                  }
+                  module.writeApk(output)
+              }
+              require(output.isFile && output.length() > 1024) { "فشل تجميع APK بعد إضافة DEX" }
+          }
+          '''
+          s = s[:start] + replacement + s[end:]
+          p.write_text(s)
+
+          g = Path('apkforge-build/APKForge-v164/app/build.gradle.kts')
+          t = g.read_text().replace('versionCode = 11', 'versionCode = 12').replace('versionName = "1.6.4"', 'versionName = "1.6.5"')
+          g.write_text(t)
+          PY
+          grep -q 'ApkModule.loadApkFile(resourceApk)' apkforge-build/APKForge-v164/app/src/main/java/com/aboryan/apkforge/SourceProjectBuilder.kt
+          grep -q 'versionName = "1.6.5"' apkforge-build/APKForge-v164/app/build.gradle.kts
+
+      - name: Prepare Android toolchain assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-34" "platforms;android-35" "platforms;android-36" "build-tools;36.0.0"
+          PROJ="$GITHUB_WORKSPACE/apkforge-build/APKForge-v164"
+          mkdir -p "$PROJ/app/src/main/assets/toolchain" "$PROJ/app/src/main/jniLibs/arm64-v8a"
+          cp "$ANDROID_SDK_ROOT/platforms/android-34/android.jar" "$PROJ/app/src/main/assets/toolchain/android-34.jar"
+          cp "$ANDROID_SDK_ROOT/platforms/android-35/android.jar" "$PROJ/app/src/main/assets/toolchain/android-35.jar"
+          cp "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" "$PROJ/app/src/main/assets/toolchain/android-36.jar"
+          curl -fL --retry 3 "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.3.21/kotlin-stdlib-2.3.21.jar" -o "$PROJ/app/src/main/assets/toolchain/kotlin-stdlib.jar"
+          curl -fL --retry 3 "https://github.com/ReVanced/aapt2/releases/download/v1.1.0/aapt2-arm64-v8a" -o "$PROJ/app/src/main/jniLibs/arm64-v8a/libapkforge_aapt2.so"
+          chmod 755 "$PROJ/app/src/main/jniLibs/arm64-v8a/libapkforge_aapt2.so"
+
+      - name: Build APKForge v1.6.5
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd apkforge-build/APKForge-v164
+          gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Verify APKForge APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APK="apkforge-build/APKForge-v164/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          unzip -l "$APK" | grep 'assets/toolchain/android-35.jar'
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libapkforge_aapt2.so'
+          cp "$APK" APKForge-v1.6.5-INSTALL-FIX.apk
+          sha256sum APKForge-v1.6.5-INSTALL-FIX.apk > APKForge-v1.6.5-INSTALL-FIX.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: APKForge-v1.6.5-INSTALL-FIX
+          path: |
+            APKForge-v1.6.5-INSTALL-FIX.apk
+            APKForge-v1.6.5-INSTALL-FIX.sha256
+          if-no-files-found: error
