@@ -1,0 +1,79 @@
+name: MatchClock V1.4 Professional
+
+on:
+  push:
+    branches:
+      - build/matchclock-v14-professional-20260821
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore MatchClock V1.4 project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat ci/matchclock-v14-professional.b64.part1 ci/matchclock-v14-professional.b64.part2 > /tmp/matchclock.b64
+          base64 -d /tmp/matchclock.b64 > /tmp/MatchClock-V1.4-Professional.zip
+          echo "038b98a90a5c27677c5f71564deae2cc1d42c3ad25adcf48649ab19938b0c9b6  /tmp/MatchClock-V1.4-Professional.zip" | sha256sum -c -
+          rm -rf /tmp/matchclock-src
+          mkdir -p /tmp/matchclock-src
+          unzip -q /tmp/MatchClock-V1.4-Professional.zip -d /tmp/matchclock-src
+          test -f /tmp/matchclock-src/MatchClock-V1.4-Professional/app/build.gradle.kts
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/matchclock-src/MatchClock-V1.4-Professional
+          gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APK="/tmp/matchclock-src/MatchClock-V1.4-Professional/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          "$BT/apksigner" verify --verbose "$APK"
+          "$BT/zipalign" -c -P 16 -v 4 "$APK"
+          cp "$APK" MatchClock-V1.4-Professional.apk
+          cp /tmp/MatchClock-V1.4-Professional.zip MatchClock-V1.4-Professional-Source.zip
+          sha256sum MatchClock-V1.4-Professional.apk > MatchClock-V1.4-Professional.apk.sha256
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchClock-V1.4-Professional
+          path: |
+            MatchClock-V1.4-Professional.apk
+            MatchClock-V1.4-Professional.apk.sha256
+            MatchClock-V1.4-Professional-Source.zip
+          if-no-files-found: error
