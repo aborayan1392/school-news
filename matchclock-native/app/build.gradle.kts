@@ -25,11 +25,4 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    sourceSets {
-        getByName("main") {
-            java.exclude("**/MainActivity.kt")
-            java.exclude("**/Ui.kt")
-        }
-    }
 }
