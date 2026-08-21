@@ -1,9 +1,9 @@
-name: MatchClock V1.4 Professional
+name: MatchClock V1.4.1 Fullscreen Undo
 
 on:
   push:
     branches:
-      - build/matchclock-v14-professional-20260821
+      - build/matchclock-v141-fullscreen-undo-20260821
   pull_request:
     branches:
       - main
@@ -36,16 +36,15 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Restore MatchClock V1.4 project
+      - name: Restore MatchClock V1.4.1 project
         shell: bash
         run: |
           set -euxo pipefail
-          cat ci/matchclock-v14-professional.b64.part1 ci/matchclock-v14-professional.b64.part2 > /tmp/matchclock.b64
-          base64 -d /tmp/matchclock.b64 > /tmp/MatchClock-V1.4-Professional.zip
-          echo "038b98a90a5c27677c5f71564deae2cc1d42c3ad25adcf48649ab19938b0c9b6  /tmp/MatchClock-V1.4-Professional.zip" | sha256sum -c -
+          base64 -d ci/matchclock-v141-fullscreen-undo.b64 > /tmp/MatchClock-V1.4.1-Source.zip
+          echo "5ab6d76bb3d170032d610a8d10ffbbcad417d4e7bc2a04fe2c55c275a66b74e8  /tmp/MatchClock-V1.4.1-Source.zip" | sha256sum -c -
           rm -rf /tmp/matchclock-src
           mkdir -p /tmp/matchclock-src
-          unzip -q /tmp/MatchClock-V1.4-Professional.zip -d /tmp/matchclock-src
+          unzip -q /tmp/MatchClock-V1.4.1-Source.zip -d /tmp/matchclock-src
           test -f /tmp/matchclock-src/MatchClock-V1.4-Professional/app/build.gradle.kts
 
       - name: Build APK
@@ -64,16 +63,16 @@ jobs:
           BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
           "$BT/apksigner" verify --verbose "$APK"
           "$BT/zipalign" -c -P 16 -v 4 "$APK"
-          cp "$APK" MatchClock-V1.4-Professional.apk
-          cp /tmp/MatchClock-V1.4-Professional.zip MatchClock-V1.4-Professional-Source.zip
-          sha256sum MatchClock-V1.4-Professional.apk > MatchClock-V1.4-Professional.apk.sha256
+          cp "$APK" MatchClock-V1.4.1-Fullscreen-Undo.apk
+          cp /tmp/MatchClock-V1.4.1-Source.zip MatchClock-V1.4.1-Fullscreen-Undo-Source.zip
+          sha256sum MatchClock-V1.4.1-Fullscreen-Undo.apk > MatchClock-V1.4.1-Fullscreen-Undo.apk.sha256
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MatchClock-V1.4-Professional
+          name: MatchClock-V1.4.1-Fullscreen-Undo
           path: |
-            MatchClock-V1.4-Professional.apk
-            MatchClock-V1.4-Professional.apk.sha256
-            MatchClock-V1.4-Professional-Source.zip
+            MatchClock-V1.4.1-Fullscreen-Undo.apk
+            MatchClock-V1.4.1-Fullscreen-Undo.apk.sha256
+            MatchClock-V1.4.1-Fullscreen-Undo-Source.zip
           if-no-files-found: error
