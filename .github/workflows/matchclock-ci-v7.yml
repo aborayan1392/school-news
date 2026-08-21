@@ -1,0 +1,390 @@
+name: MatchClock APK CI V7
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+
+      - name: Apply v1.4.0 modern UI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt')
+          s = p.read_text(encoding='utf-8')
+
+          def repl(name, code):
+              global s
+              pattern = rf'^    private fun {re.escape(name)}\(.*$'
+              s2, n = re.subn(pattern, code.rstrip(), s, count=1, flags=re.MULTILINE)
+              if n != 1:
+                  raise SystemExit(f'function {name}: matched {n}')
+              s = s2
+
+          s = s.replace(
+              '    private var liveStatus: TextView? = null',
+              '    private var liveStatus: TextView? = null\n'
+              '    private var livePhase: TextView? = null\n'
+              '    private lateinit var bottomNav: LinearLayout\n'
+              '    private var screenMode: String = "match"\n'
+              '    private var matchFilter: String = "all"'
+          )
+          s = s.replace(
+              '    private val red = 0xFFC94343.toInt()',
+              '    private val red = 0xFFC94343.toInt()\n'
+              '    private val navy = 0xFF071827.toInt()\n'
+              '    private val orange = 0xFFF07C19.toInt()'
+          )
+
+          repl('iconButton', r'''    private fun iconButton(res: Int, content: String, tint: Int = ink(), fill: Int = surface2(), size: Int = 46, onClick: () -> Unit) = ImageButton(this).apply {
+        setImageResource(res)
+        drawable?.mutate()?.setTint(tint)
+        background = shape(fill, 14, if (fill == surface2()) line() else null)
+        contentDescription = content
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        adjustViewBounds = false
+        val pad = if (size <= 40) 8 else 10
+        setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+        setOnClickListener { onClick() }
+        minimumWidth = 0; minimumHeight = 0
+    }''')
+
+          repl('actionButton', r'''    private fun actionButton(label:String,icon:Int,fill:Int,color:Int=Color.WHITE,height:Int=56,onClick:()->Unit)=Button(this).apply{
+        text=latin(label); isAllCaps=false; textSize=if(compact)12.5f else 14f
+        setTextColor(color); setTypeface(typeface,Typeface.BOLD); gravity=Gravity.CENTER
+        textAlignment=View.TEXT_ALIGNMENT_CENTER; background=shape(fill,15,if(fill==surface2())line()else null)
+        minHeight=dp(height); minimumHeight=dp(height); minWidth=0; minimumWidth=0; maxLines=1
+        setAutoSizeTextTypeUniformWithConfiguration(10,if(compact)13 else 14,1,android.util.TypedValue.COMPLEX_UNIT_SP)
+        compoundDrawablePadding=dp(4); setCompoundDrawablesRelative(drawable(icon,color,if(compact)18 else 21),null,null,null)
+        setPadding(dp(5),0,dp(5),0); setOnClickListener{onClick()}
+    }''')
+
+          repl('buildUi', r'''    private fun buildUi(){
+        window.statusBarColor=navy; window.navigationBarColor=navy
+        @Suppress("DEPRECATION") window.decorView.systemUiVisibility=0
+        root=col().apply{layoutDirection=View.LAYOUT_DIRECTION_RTL;setBackgroundColor(bg());setPadding(dp(8),dp(6),dp(8),0)}
+        applyInsets(root)
+        contentHost=FrameLayout(this)
+        root.addView(contentHost,LinearLayout.LayoutParams(-1,0,1f))
+        bottomNav=bottomNavigation()
+        root.addView(bottomNav,LinearLayout.LayoutParams(-1,dp(if(compact)58 else 64)).apply{topMargin=dp(5)})
+        setContentView(root)
+        renderActive()
+    }''')
+
+          repl('renderActive', r'''    private fun renderActive(){
+        liveTime=null; liveLost=null; liveShot=null; liveStatus=null; livePhase=null
+        contentHost.removeAllViews()
+        val view=when(screenMode){
+            "matches"->matchesScreen()
+            "modes"->modesScreen()
+            "log"->globalLogScreen()
+            "settings"->appSettingsScreen()
+            else->{
+                val st=states.firstOrNull{it.id==selectedId&&!it.archived} ?: states.firstOrNull{!it.archived}
+                if(st!=null){selectedId=st.id;when(st.type){MatchState.TYPE_SHOOTOUT->shootoutPanel(st);MatchState.TYPE_SETS->setsPanel(st);MatchState.TYPE_BASKETBALL->basketPanel(st);else->matchPanel(st)}}
+                else emptyModernScreen()
+            }
+        }
+        contentHost.addView(view,FrameLayout.LayoutParams(-1,-1))
+        if(::bottomNav.isInitialized){root.removeView(bottomNav);bottomNav=bottomNavigation();root.addView(bottomNav,LinearLayout.LayoutParams(-1,dp(if(compact)58 else 64)).apply{topMargin=dp(5)})}
+        updateLive()
+    }''')
+
+          repl('matchPanel', r'''    private fun matchPanel(s:MatchState):View{
+        val card=col().apply{background=shape(surface(),22);clipChildren=true;clipToPadding=true;elevation=dp(2).toFloat()}
+        val hero=col().apply{setPadding(dp(10),dp(8),dp(10),dp(9));background=shape(navy,20)}
+        val titleRow=row(6)
+        val titleBox=col();titleBox.addView(text(s.title,if(compact)14f else 16f,Color.WHITE,true));titleBox.addView(text(if(s.notes.isBlank())"لوحة المباراة الرئيسية" else s.notes,10.5f,0xFFBBC8D2.toInt()).apply{maxLines=1})
+        titleRow.addView(titleBox,LinearLayout.LayoutParams(0,-2,1f))
+        titleRow.addView(iconButton(R.drawable.ic_list_smart,"قائمة المباريات",Color.WHITE,0xFF10283A.toInt(),38){screenMode="matches";renderActive()},LinearLayout.LayoutParams(dp(38),dp(38)))
+        titleRow.addView(iconButton(R.drawable.ic_settings_smart,"إعدادات المباراة",Color.WHITE,0xFF10283A.toInt(),38){showSettingsDialog(s)},LinearLayout.LayoutParams(dp(38),dp(38)))
+        hero.addView(titleRow,LinearLayout.LayoutParams(-1,dp(if(compact)40 else 44)))
+        val teams=row(8).apply{gravity=Gravity.CENTER}
+        teams.addView(teamHero(s,false),LinearLayout.LayoutParams(0,dp(if(compact)70 else 82),1f))
+        teams.addView(text("VS",10.5f,Color.WHITE,true).apply{gravity=Gravity.CENTER;background=shape(0xFF183244.toInt(),99,0xFF315067.toInt());setPadding(dp(7),dp(7),dp(7),dp(7))},LinearLayout.LayoutParams(dp(42),dp(42)))
+        teams.addView(teamHero(s,true),LinearLayout.LayoutParams(0,dp(if(compact)70 else 82),1f))
+        hero.addView(teams,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(4)})
+        card.addView(hero,LinearLayout.LayoutParams(-1,dp(if(compact)120 else 138)))
+
+        val timerBox=col().apply{gravity=Gravity.CENTER;setPadding(dp(4),dp(5),dp(4),0)}
+        liveTime=text("00:00",if(compact)50f else 62f,ink(),true).apply{gravity=Gravity.CENTER;typeface=Typeface.MONOSPACE;textLocale=java.util.Locale.US}
+        timerBox.addView(liveTime,LinearLayout.LayoutParams(-1,0,1f))
+        liveLost=text("الوقت بدل الضائع +00:00",if(compact)11f else 13f,orange,true).apply{gravity=Gravity.CENTER}
+        timerBox.addView(liveLost,LinearLayout.LayoutParams(-1,dp(24)))
+        val chips=row(6).apply{gravity=Gravity.CENTER}
+        livePhase=statusChip("الشوط الأول",surface2(),ink())
+        liveStatus=statusChip(if(s.running)"مباشر" else "متوقف",if(s.running)green else red,Color.WHITE)
+        chips.addView(livePhase);chips.addView(liveStatus);chips.addView(statusChip("البداية 00:00",surface2(),muted()))
+        timerBox.addView(chips,LinearLayout.LayoutParams(-1,dp(34)))
+        card.addView(timerBox,LinearLayout.LayoutParams(-1,0,1.15f))
+
+        val ctl=row(7).apply{setPadding(dp(8),0,dp(8),0)}
+        ctl.addView(weight(actionButton("إعادة",R.drawable.ic_reset_smart,surface2(),ink(),if(compact)47 else 52){showResetDialog(s)}))
+        ctl.addView(weight(actionButton("إيقاف",R.drawable.ic_pause_smart,navy,Color.WHITE,if(compact)47 else 52){if(s.running){s.freeze();save();renderActive()}}))
+        ctl.addView(weight(actionButton("تشغيل",R.drawable.ic_play_smart,green,Color.WHITE,if(compact)47 else 52){if(!s.running){s.resume();save();renderActive()}}))
+        card.addView(ctl,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(4)})
+
+        card.addView(text("إجراءات سريعة",12f,ink(),true).apply{gravity=Gravity.RIGHT;setPadding(dp(10),dp(7),dp(10),dp(4))})
+        val ev=row(6).apply{setPadding(dp(8),0,dp(8),0)}
+        ev.addView(weight(actionButton("وقت ضائع",R.drawable.ic_add_smart,blue,Color.WHITE,if(compact)49 else 54){showLostTimeDialog(s)}))
+        ev.addView(weight(actionButton("طرد",R.drawable.ic_red_card_smart,red,Color.WHITE,if(compact)49 else 54){showEventDialog(s,"red")}))
+        ev.addView(weight(actionButton("إنذار",R.drawable.ic_yellow_card_smart,0xFFFFB71B.toInt(),0xFF302814.toInt(),if(compact)49 else 54){showEventDialog(s,"yellow")}))
+        ev.addView(weight(actionButton("هدف",R.drawable.ic_goal,green,Color.WHITE,if(compact)49 else 54){showEventDialog(s,"goal")}))
+        card.addView(ev)
+        card.addView(recentEventsBox(s),LinearLayout.LayoutParams(-1,0,0.82f).apply{setMargins(dp(8),dp(7),dp(8),dp(7))})
+        return card
+    }''')
+
+          repl('scoreBoard', r'''    private fun scoreBoard(s:MatchState):View{val outer=row(4).apply{setPadding(dp(7),dp(6),dp(7),dp(6));background=shape(surface2(),18);clipChildren=true;clipToPadding=true};outer.addView(teamScoreBox(s,true),LinearLayout.LayoutParams(0,-1,1f));outer.addView(text(":",if(compact)25f else 28f,muted(),true).apply{gravity=Gravity.CENTER},LinearLayout.LayoutParams(dp(if(compact)14 else 18),-1));outer.addView(teamScoreBox(s,false),LinearLayout.LayoutParams(0,-1,1f));return outer}''')
+
+          repl('teamScoreBox', r'''    private fun teamScoreBox(s:MatchState,home:Boolean):View{val teamColor=if(home)green else blue;val teamSoft=if(dark){if(home)0xFF143422.toInt() else 0xFF112C42.toInt()}else{if(home)0xFFEAF6EE.toInt() else 0xFFEAF3FB.toInt()};val box=col().apply{gravity=Gravity.CENTER;setPadding(dp(4),dp(3),dp(4),dp(4));background=shape(teamSoft,14,teamColor)};val teamName=text(if(home)s.home else s.away,if(compact)16f else 18f,teamColor,true).apply{gravity=Gravity.CENTER;maxLines=1;textAlignment=View.TEXT_ALIGNMENT_CENTER;setAutoSizeTextTypeUniformWithConfiguration(if(compact)13 else 14,if(compact)17 else 20,1,android.util.TypedValue.COMPLEX_UNIT_SP)};box.addView(teamName,LinearLayout.LayoutParams(-1,dp(if(compact)25 else 29)));val r=row(4).apply{gravity=Gravity.CENTER;clipChildren=true;clipToPadding=true};val minus=iconButton(R.drawable.ic_minus_smart,"إنقاص",teamColor,surface(),if(compact)36 else 40){if(home)s.scoreHome=(s.scoreHome-1).coerceAtLeast(0) else s.scoreAway=(s.scoreAway-1).coerceAtLeast(0);save();renderActive()};val score=text((if(home)s.scoreHome else s.scoreAway).toString(),if(compact)30f else 36f,teamColor,true).apply{gravity=Gravity.CENTER;textAlignment=View.TEXT_ALIGNMENT_CENTER;typeface=Typeface.MONOSPACE;textLocale=java.util.Locale.US};val plus=iconButton(R.drawable.ic_add_smart,"زيادة",Color.WHITE,teamColor,if(compact)36 else 40){if(home)s.scoreHome++ else s.scoreAway++;save();renderActive()};r.addView(minus,LinearLayout.LayoutParams(0,-1,1f));r.addView(score,LinearLayout.LayoutParams(0,-1,1.12f));r.addView(plus,LinearLayout.LayoutParams(0,-1,1f));box.addView(r,LinearLayout.LayoutParams(-1,0,1f));return box}''')
+
+          repl('recentEventsBox', r'''    private fun recentEventsBox(s:MatchState):View{
+        val box=col().apply{setPadding(dp(10),dp(7),dp(10),dp(7));background=shape(if(dark)0xFF101B15.toInt() else Color.WHITE,15,line())}
+        val head=row(5);head.addView(text("آخر الأحداث",12f,ink(),true),LinearLayout.LayoutParams(0,-2,1f));val more=text("المزيد",10.5f,blue,true).apply{setPadding(dp(8),dp(4),dp(8),dp(4));setOnClickListener{showLogDialog(s)}};head.addView(more);box.addView(head,LinearLayout.LayoutParams(-1,dp(28)))
+        if(s.events.isEmpty())box.addView(text("لا توجد أحداث مسجلة حتى الآن",11f,muted()).apply{gravity=Gravity.CENTER},LinearLayout.LayoutParams(-1,0,1f))
+        else s.events.takeLast(2).asReversed().forEach{box.addView(eventMiniRow(s,it),LinearLayout.LayoutParams(-1,0,1f))}
+        return box
+    }''')
+
+          repl('eventMiniRow', r'''    private fun eventMiniRow(s:MatchState,e:MatchEvent):View{
+        val r=row(6).apply{setPadding(dp(2),dp(3),dp(2),dp(3))}
+        val dot=TextView(this).apply{text="●";textSize=13f;setTextColor(if(e.team=="home")green else blue);gravity=Gravity.CENTER};r.addView(dot,LinearLayout.LayoutParams(dp(18),-1))
+        val icon=ImageView(this).apply{setImageResource(eventIcon(e.kind));drawable?.mutate()?.setTint(eventColor(e.kind));scaleType=ImageView.ScaleType.CENTER_INSIDE;setPadding(dp(5),dp(5),dp(5),dp(5))};r.addView(icon,LinearLayout.LayoutParams(dp(32),dp(32)))
+        val c=col();c.addView(text("${eventName(e.kind)}  #${e.number.ifBlank{"-"}}  ${e.player.ifBlank{"بدون اسم"}}",10.5f,ink(),true));val sub=if(e.note.isBlank())(if(e.team=="home")s.home else s.away) else "${if(e.team=="home")s.home else s.away} • ${e.note}";c.addView(text(sub,9.5f,muted()).apply{maxLines=1});r.addView(c,LinearLayout.LayoutParams(0,-2,1f));r.addView(text(clock(e.timeMs),10f,muted(),true).apply{gravity=Gravity.CENTER;textLocale=java.util.Locale.US});return r
+    }''')
+
+          repl('styledDialog', r'''    private fun styledDialog(title:String,iconRes:Int,iconColor:Int):Pair<Dialog,LinearLayout>{
+        val d=Dialog(this);d.window?.requestFeature(android.view.Window.FEATURE_NO_TITLE)
+        val r=col().apply{setPadding(dp(16),dp(12),dp(16),dp(14));background=shape(surface(),24);layoutDirection=View.LAYOUT_DIRECTION_RTL}
+        val top=FrameLayout(this)
+        val close=iconButton(R.drawable.ic_close_smart,"إغلاق",ink(),surface2(),38){d.dismiss()};top.addView(close,FrameLayout.LayoutParams(dp(38),dp(38),Gravity.START or Gravity.TOP))
+        val center=col().apply{gravity=Gravity.CENTER};val icon=ImageView(this@SmartRefereeActivity).apply{setImageResource(iconRes);drawable?.mutate()?.setTint(iconColor);background=shape(if(dark)0xFF173126.toInt() else 0xFFEAF6EE.toInt(),99);setPadding(dp(11),dp(11),dp(11),dp(11))};center.addView(icon,LinearLayout.LayoutParams(dp(52),dp(52)));center.addView(text(title,17f,ink(),true).apply{gravity=Gravity.CENTER;setPadding(0,dp(5),0,0)});top.addView(center,FrameLayout.LayoutParams(-1,-1))
+        r.addView(top,LinearLayout.LayoutParams(-1,dp(88)))
+        val body=col().apply{setPadding(0,dp(7),0,0)};r.addView(body,LinearLayout.LayoutParams(-1,0,1f));d.setContentView(r);return d to body
+    }''')
+
+          repl('showEventDialog', r'''    private fun showEventDialog(s:MatchState,kind:String){
+        val d=styledDialog("تسجيل ${eventName(kind)}",eventIcon(kind),eventColor(kind));val body=d.second;var team="home"
+        val teamRow=row(7);val homeBtn=Button(this);val awayBtn=Button(this)
+        fun styleTeam(){listOf(homeBtn to "home",awayBtn to "away").forEach{(b,key)->b.isAllCaps=false;b.textSize=13f;b.setTypeface(b.typeface,Typeface.BOLD);b.setTextColor(if(team==key)Color.WHITE else ink());b.background=shape(if(team==key)(if(key=="home")green else blue)else surface2(),12,if(team==key)null else line());b.minHeight=dp(46);b.minimumHeight=dp(46)}}
+        homeBtn.text=latin(s.home);awayBtn.text=latin(s.away);homeBtn.setOnClickListener{team="home";styleTeam()};awayBtn.setOnClickListener{team="away";styleTeam()};styleTeam();teamRow.addView(weight(homeBtn));teamRow.addView(weight(awayBtn));body.addView(teamRow)
+        val player=input("اسم اللاعب",InputType.TYPE_CLASS_TEXT);val number=input("رقم اللاعب",InputType.TYPE_CLASS_NUMBER).apply{textDirection=View.TEXT_DIRECTION_LTR}
+        val note=input("ملاحظات اختيارية",InputType.TYPE_CLASS_TEXT)
+        body.addView(labeledField("اسم اللاعب",player));body.addView(labeledField("رقم اللاعب",number));body.addView(labeledField("ملاحظات (اختياري)",note))
+        val error=text("",10.5f,red,true).apply{visibility=View.GONE};body.addView(error)
+        body.addView(dialogButtons("تسجيل ${eventName(kind)}",eventColor(kind),R.drawable.ic_check_smart,"إلغاء",{
+            val name=player.text.toString().trim();val no=latin(number.text.toString().trim())
+            if(name.isBlank()||no.isBlank()){error.text="أدخل اسم اللاعب ورقمه قبل التسجيل";error.visibility=View.VISIBLE}
+            else{if(s.autoPause&&s.running)s.freeze();if(kind=="goal"){if(team=="home")s.scoreHome++ else s.scoreAway++};s.events.add(MatchEvent(s.currentElapsed(),kind,team,name,no,note.text.toString().trim()));save();d.first.dismiss();renderActive()}
+        },{d.first.dismiss()}));d.first.show();fitDialog(d.first,0.92f,0.82f)
+    }''')
+
+          repl('showLogDialog', r'''    private fun showLogDialog(s:MatchState){
+        val d=styledDialog("السجل الكامل",R.drawable.ic_list_smart,green);val body=d.second;var filter="all"
+        val filters=row(5);val listHost=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        fun rebuild(){listHost.removeAllViews();val data=s.events.asReversed().filter{filter=="all"||it.kind==filter};if(data.isEmpty())listHost.addView(text("لا توجد أحداث ضمن هذا التصنيف",12f,muted()).apply{gravity=Gravity.CENTER;setPadding(0,dp(24),0,dp(24))})else data.forEach{e->val rr=eventMiniRow(s,e).apply{background=shape(surface2(),12,line());setPadding(dp(6),dp(5),dp(6),dp(5))};listHost.addView(rr,LinearLayout.LayoutParams(-1,dp(54)).apply{bottomMargin=dp(5)})}}
+        fun fb(label:String,key:String,color:Int){val b=Button(this).apply{isAllCaps=false;text=label;textSize=10.5f;setTextColor(if(filter==key)Color.WHITE else ink());background=shape(if(filter==key)color else surface2(),99,if(filter==key)null else line());minHeight=dp(34);minimumHeight=dp(34);setPadding(dp(8),0,dp(8),0);setOnClickListener{filter=key;filters.removeAllViews();fb("الكل","all",green);fb("أهداف","goal",green);fb("إنذارات","yellow",0xFFFFB71B.toInt());fb("طرد","red",red);rebuild()}};filters.addView(b,LinearLayout.LayoutParams(0,dp(34),1f))}
+        fb("الكل","all",green);fb("أهداف","goal",green);fb("إنذارات","yellow",0xFFFFB71B.toInt());fb("طرد","red",red);body.addView(filters,LinearLayout.LayoutParams(-1,dp(36)))
+        val scroll=ScrollView(this);scroll.addView(listHost);body.addView(scroll,LinearLayout.LayoutParams(-1,0,1f).apply{topMargin=dp(8)});rebuild()
+        val tools=row(7);tools.addView(weight(actionButton("تراجع آخر حدث",R.drawable.ic_undo_smart,surface2(),ink(),46){if(s.events.isNotEmpty()){val e=s.events.removeAt(s.events.lastIndex);if(e.kind=="goal"){if(e.team=="home")s.scoreHome=(s.scoreHome-1).coerceAtLeast(0) else s.scoreAway=(s.scoreAway-1).coerceAtLeast(0)};save();d.first.dismiss();renderActive()}}));tools.addView(weight(actionButton("إغلاق",R.drawable.ic_close_smart,green,Color.WHITE,46){d.first.dismiss()}));body.addView(tools);d.first.show();fitDialog(d.first,0.94f,0.88f)
+    }''')
+
+          repl('showAddDialog', r'''    private fun showAddDialog(){showNewMatchDialog(MatchState.TYPE_MATCH)}''')
+
+          repl('showSettingsDialog', r'''    private fun showSettingsDialog(s:MatchState){
+        val d=styledDialog("إعدادات المباراة",R.drawable.ic_settings_smart,green);val body=d.second
+        val title=input("اسم المباراة",InputType.TYPE_CLASS_TEXT).apply{setText(s.title)};val home=input("الفريق الأول",InputType.TYPE_CLASS_TEXT).apply{setText(s.home)};val away=input("الفريق الثاني",InputType.TYPE_CLASS_TEXT).apply{setText(s.away)};val venue=input("ملعب المباراة",InputType.TYPE_CLASS_TEXT).apply{setText(s.notes)}
+        body.addView(labeledField("اسم المباراة",title));body.addView(labeledField("الفريق الأول",home));body.addView(labeledField("الفريق الثاني",away));body.addView(labeledField("ملعب المباراة",venue))
+        var extra:EditText?=null;if(s.type==MatchState.TYPE_MATCH||s.type==MatchState.TYPE_BASKETBALL||s.type==MatchState.TYPE_SETS){extra=input("القيمة",InputType.TYPE_CLASS_NUMBER).apply{setText(when(s.type){MatchState.TYPE_MATCH->s.halfMinutes;MatchState.TYPE_BASKETBALL->s.quarterMinutes;else->s.pointsPerSet}.toString())};body.addView(labeledField(when(s.type){MatchState.TYPE_MATCH->"مدة الشوط بالدقائق";MatchState.TYPE_BASKETBALL->"مدة الربع بالدقائق";else->"نقاط الشوط"},extra))}
+        body.addView(dialogButtons("حفظ",green,R.drawable.ic_check_smart,"إلغاء",{s.title=title.text.toString().trim().ifBlank{s.title};s.home=home.text.toString().trim().ifBlank{"الفريق 1"};s.away=away.text.toString().trim().ifBlank{"الفريق 2"};s.notes=venue.text.toString().trim();val v=extra?.text?.toString()?.toIntOrNull();if(v!=null)when(s.type){MatchState.TYPE_MATCH->s.halfMinutes=v.coerceIn(1,200);MatchState.TYPE_BASKETBALL->s.quarterMinutes=v.coerceIn(1,30);MatchState.TYPE_SETS->s.pointsPerSet=v.coerceIn(1,100)};save();d.first.dismiss();renderActive()},{d.first.dismiss()}));d.first.show();fitDialog(d.first,0.92f,0.88f)
+    }''')
+
+          repl('bigScreen', r'''    private fun bigScreen(s:MatchState){
+        val d=Dialog(this,android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val box=col().apply{gravity=Gravity.CENTER;setPadding(dp(14),dp(14),dp(14),dp(14));setBackgroundColor(navy);layoutDirection=View.LAYOUT_DIRECTION_RTL}
+        val top=row(7);top.addView(text("شاشة الحكم",14f,Color.WHITE,true),LinearLayout.LayoutParams(0,-2,1f));top.addView(iconButton(R.drawable.ic_close_smart,"إغلاق",Color.WHITE,0xFF173044.toInt(),44){d.dismiss()},LinearLayout.LayoutParams(dp(44),dp(44)));box.addView(top,LinearLayout.LayoutParams(-1,dp(48)))
+        val teams=row(9);val awayScore=text(s.scoreAway.toString(),34f,Color.WHITE,true);val homeScore=text(s.scoreHome.toString(),34f,Color.WHITE,true);teams.addView(bigTeamCard(s.away,awayScore,blue),LinearLayout.LayoutParams(0,dp(112),1f));teams.addView(text("",1f,Color.TRANSPARENT),LinearLayout.LayoutParams(dp(8),dp(1)));teams.addView(bigTeamCard(s.home,homeScore,green),LinearLayout.LayoutParams(0,dp(112),1f));box.addView(teams)
+        val t=text("00:00",if(compact)60f else 76f,Color.WHITE,true).apply{gravity=Gravity.CENTER;typeface=Typeface.MONOSPACE;textLocale=java.util.Locale.US};box.addView(t,LinearLayout.LayoutParams(-1,0,1f));val lost=text("+00:00",20f,0xFFFFA62B.toInt(),true).apply{gravity=Gravity.CENTER};box.addView(lost,LinearLayout.LayoutParams(-1,dp(36)))
+        val ctl=row(7);ctl.addView(weight(actionButton("تشغيل",R.drawable.ic_play_smart,green,Color.WHITE,52){if(!s.running)s.resume();save()}));ctl.addView(weight(actionButton("إيقاف",R.drawable.ic_pause_smart,0xFF132B3D.toInt(),Color.WHITE,52){if(s.running)s.freeze();save()}));ctl.addView(weight(actionButton("إعادة",R.drawable.ic_reset_smart,0xFF263C4C.toInt(),Color.WHITE,52){d.dismiss();showResetDialog(s)}));ctl.addView(weight(actionButton("وقت ضائع",R.drawable.ic_add_smart,blue,Color.WHITE,52){d.dismiss();showLostTimeDialog(s)}));box.addView(ctl,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8)})
+        val ev=row(7);ev.addView(weight(actionButton("هدف",R.drawable.ic_goal,green,Color.WHITE,54){d.dismiss();showEventDialog(s,"goal")}));ev.addView(weight(actionButton("إنذار",R.drawable.ic_yellow_card_smart,0xFFFFB71B.toInt(),0xFF302814.toInt(),54){d.dismiss();showEventDialog(s,"yellow")}));ev.addView(weight(actionButton("طرد",R.drawable.ic_red_card_smart,red,Color.WHITE,54){d.dismiss();showEventDialog(s,"red")}));box.addView(ev,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8)})
+        val up=object:Runnable{override fun run(){if(!d.isShowing)return;val elapsed=if(s.type==MatchState.TYPE_BASKETBALL)s.basketballRemaining()else s.currentElapsed();t.text=clock(elapsed);lost.text="+${clock(s.currentLost())}";homeScore.text=s.scoreHome.toString();awayScore.text=s.scoreAway.toString();handler.postDelayed(this,200)}}
+        d.setContentView(box);d.setOnDismissListener{handler.removeCallbacks(up)};d.show();handler.post(up)
+    }''')
+
+          repl('updateLive', r'''    private fun updateLive(){
+        val s=states.firstOrNull{it.id==selectedId&&!it.archived}?:return;val now=System.currentTimeMillis()
+        when(s.type){
+            MatchState.TYPE_MATCH->{val elapsed=s.currentElapsed(now);liveTime?.text=clock(elapsed);liveLost?.text=latin("الوقت بدل الضائع +${clock(s.currentLost(now))}");livePhase?.text=if(elapsed>=s.halfMinutes.coerceAtLeast(1)*60_000L)"الشوط الثاني" else "الشوط الأول"}
+            MatchState.TYPE_BASKETBALL->{val remain=s.basketballRemaining(now);liveTime?.text=clock(remain);val shot=((s.shotRemaining(now)+999)/1000).toInt();liveShot?.text=shot.toString();liveShot?.setTextColor(if(shot<=5)red else amber);if(s.running&&remain<=0){s.freeze(now);save();renderActive()}}
+        }
+        liveStatus?.text=if(s.running)"مباشر" else "متوقف";liveStatus?.setTextColor(Color.WHITE);liveStatus?.background=shape(if(s.running)green else red,99)
+        if(states.any{it.running&&!it.archived})window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }''')
+
+          repl('clock', r'''    private fun clock(ms:Long,tenth:Boolean=false):String{val safe=ms.coerceAtLeast(0);val total=safe/1000;val m=total/60;val sec=total%60;return if(tenth)String.format(java.util.Locale.US,"%02d:%02d.%d",m,sec,(safe%1000)/100) else String.format(java.util.Locale.US,"%02d:%02d",m,sec)}''')
+          repl('backup', r'''    private fun backup()=JSONObject().apply{put("app","MatchClock");put("version","1.4.0");put("items",JSONArray().apply{states.forEach{put(it.toJson())}})}.toString(2)''')
+
+          helpers = r'''
+    private fun statusChip(label:String,fill:Int,color:Int)=text(label,10f,color,true).apply{gravity=Gravity.CENTER;background=shape(fill,99);setPadding(dp(9),dp(5),dp(9),dp(5));minWidth=dp(62)}
+
+    private fun teamHero(s:MatchState,home:Boolean):View{
+        val color=if(home)green else blue
+        val box=col().apply{gravity=Gravity.CENTER;background=shape(color,15);setPadding(dp(5),dp(4),dp(5),dp(4))}
+        val name=text(if(home)s.home else s.away,if(compact)13f else 15f,Color.WHITE,true).apply{gravity=Gravity.CENTER;maxLines=1;textAlignment=View.TEXT_ALIGNMENT_CENTER;setAutoSizeTextTypeUniformWithConfiguration(11,if(compact)14 else 17,1,android.util.TypedValue.COMPLEX_UNIT_SP)}
+        box.addView(name,LinearLayout.LayoutParams(-1,dp(24)))
+        val center=row(4).apply{gravity=Gravity.CENTER};val shield=ImageView(this).apply{setImageResource(R.drawable.ic_shield_modern);drawable?.mutate()?.setTint(Color.WHITE);scaleType=ImageView.ScaleType.CENTER_INSIDE};center.addView(shield,LinearLayout.LayoutParams(dp(26),dp(30)))
+        center.addView(text((if(home)s.scoreHome else s.scoreAway).toString(),if(compact)27f else 32f,Color.WHITE,true).apply{gravity=Gravity.CENTER;typeface=Typeface.MONOSPACE;textLocale=java.util.Locale.US},LinearLayout.LayoutParams(0,-1,1f))
+        val buttons=row(2);buttons.addView(iconButton(R.drawable.ic_minus_smart,"إنقاص",color,Color.WHITE,28){if(home)s.scoreHome=(s.scoreHome-1).coerceAtLeast(0) else s.scoreAway=(s.scoreAway-1).coerceAtLeast(0);save();renderActive()},LinearLayout.LayoutParams(dp(28),dp(28)));buttons.addView(iconButton(R.drawable.ic_add_smart,"زيادة",color,Color.WHITE,28){if(home)s.scoreHome++ else s.scoreAway++;save();renderActive()},LinearLayout.LayoutParams(dp(28),dp(28)));center.addView(buttons)
+        box.addView(center,LinearLayout.LayoutParams(-1,0,1f));return box
+    }
+
+    private fun bottomNavigation():LinearLayout{
+        val bar=row(0).apply{background=shape(navy,18);setPadding(dp(3),dp(3),dp(3),dp(3));gravity=Gravity.CENTER}
+        fun add(label:String,icon:Int,mode:String){val selected=(screenMode==mode)||(mode=="match"&&screenMode=="matches");val item=col().apply{gravity=Gravity.CENTER;setOnClickListener{screenMode=mode;renderActive()}};val iv=ImageView(this).apply{setImageResource(icon);drawable?.mutate()?.setTint(if(selected)green else 0xFFD6DEE4.toInt());scaleType=ImageView.ScaleType.CENTER_INSIDE};item.addView(iv,LinearLayout.LayoutParams(dp(24),dp(24)));item.addView(text(label,9.5f,if(selected)green else 0xFFD6DEE4.toInt(),selected).apply{gravity=Gravity.CENTER},LinearLayout.LayoutParams(-1,dp(20)));bar.addView(item,LinearLayout.LayoutParams(0,-1,1f))}
+        add("المباريات",R.drawable.ic_goal,"match");add("البطولات",R.drawable.ic_trophy_modern,"modes");add("السجل",R.drawable.ic_list_smart,"log");add("الإعدادات",R.drawable.ic_settings_smart,"settings");return bar
+    }
+
+    private fun emptyModernScreen():View{
+        val box=col().apply{gravity=Gravity.CENTER;background=shape(surface(),22,line());setPadding(dp(22),dp(22),dp(22),dp(22))}
+        val iv=ImageView(this).apply{setImageResource(R.mipmap.ic_launcher)};box.addView(iv,LinearLayout.LayoutParams(dp(82),dp(82)));box.addView(text("لا توجد مباراة حالية",18f,ink(),true).apply{gravity=Gravity.CENTER;setPadding(0,dp(12),0,dp(5))});box.addView(text("أضف مباراة جديدة لتظهر لوحة الحكم هنا.",12f,muted()).apply{gravity=Gravity.CENTER});box.addView(actionButton("إضافة مباراة",R.drawable.ic_add_smart,green,Color.WHITE,52){showAddDialog()},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)});return box
+    }
+
+    private fun screenHeader(title:String,add:Boolean=false):View{
+        val r=row(7).apply{background=shape(navy,18);setPadding(dp(10),dp(7),dp(10),dp(7))}
+        r.addView(text(title,20f,Color.WHITE,true),LinearLayout.LayoutParams(0,-2,1f));if(add)r.addView(iconButton(R.drawable.ic_add_smart,"إضافة",Color.WHITE,green,42){showAddDialog()},LinearLayout.LayoutParams(dp(42),dp(42)));r.addView(iconButton(R.drawable.ic_menu_smart,"القائمة",Color.WHITE,0xFF10283A.toInt(),42){showMainMenu()},LinearLayout.LayoutParams(dp(42),dp(42)));return r
+    }
+
+    private fun filterButton(label:String,key:String):Button=Button(this).apply{isAllCaps=false;text=label;textSize=11f;setTypeface(typeface,if(matchFilter==key)Typeface.BOLD else Typeface.NORMAL);setTextColor(if(matchFilter==key)green else muted());background=shape(if(matchFilter==key)(if(dark)0xFF153723.toInt() else 0xFFE8F5EC.toInt()) else surface(),99,if(matchFilter==key)green else line());minHeight=dp(36);minimumHeight=dp(36);setOnClickListener{matchFilter=key;renderActive()}}
+
+    private fun matchesScreen():View{
+        val page=col();page.addView(screenHeader("المباريات",true),LinearLayout.LayoutParams(-1,dp(56)))
+        val tabs=row(6).apply{setPadding(dp(6),dp(7),dp(6),dp(7))};tabs.addView(weight(filterButton("الكل","all")));tabs.addView(weight(filterButton("مباشرة","live")));tabs.addView(weight(filterButton("منتهية","done")));page.addView(tabs,LinearLayout.LayoutParams(-1,dp(52)))
+        val scroll=ScrollView(this).apply{isFillViewport=true};val list=col().apply{setPadding(dp(4),dp(2),dp(4),dp(6))};val data=states.filter{!it.archived}.filter{when(matchFilter){"live"->it.running;"done"->!it.running&&it.currentElapsed()>0;else->true}}
+        if(data.isEmpty())list.addView(text("لا توجد مباريات ضمن هذا التصنيف",13f,muted()).apply{gravity=Gravity.CENTER;setPadding(0,dp(40),0,dp(40))})else data.forEachIndexed{i,st->list.addView(matchListCard(st,i+1),LinearLayout.LayoutParams(-1,dp(if(compact)104 else 118)).apply{bottomMargin=dp(8)})}
+        scroll.addView(list);page.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));return page
+    }
+
+    private fun matchListCard(s:MatchState,index:Int):View{
+        val card=col().apply{background=shape(surface(),16,line());setPadding(dp(10),dp(8),dp(10),dp(8));setOnClickListener{selectedId=s.id;screenMode="match";renderActive()}}
+        val top=row(6);top.addView(statusChip(if(s.running)"مباشر" else "${index.toString().padStart(2,'0')}",if(s.running)green else surface2(),if(s.running)Color.WHITE else muted()));top.addView(text(typeName(s),10f,muted(),true),LinearLayout.LayoutParams(0,-2,1f));top.addView(text(when(s.type){MatchState.TYPE_MATCH->clock(s.currentElapsed());MatchState.TYPE_BASKETBALL->clock(s.basketballRemaining());else->""},11f,if(s.running)red else muted(),true));card.addView(top,LinearLayout.LayoutParams(-1,dp(28)))
+        val mid=row(6).apply{gravity=Gravity.CENTER};mid.addView(smallTeam(s.away,s.scoreAway,blue),LinearLayout.LayoutParams(0,-1,1f));mid.addView(text("${s.scoreAway} - ${s.scoreHome}",25f,ink(),true).apply{gravity=Gravity.CENTER;typeface=Typeface.MONOSPACE;textLocale=java.util.Locale.US},LinearLayout.LayoutParams(dp(92),-1));mid.addView(smallTeam(s.home,s.scoreHome,green),LinearLayout.LayoutParams(0,-1,1f));card.addView(mid,LinearLayout.LayoutParams(-1,0,1f));return card
+    }
+
+    private fun smallTeam(name:String,score:Int,color:Int):View{val c=col().apply{gravity=Gravity.CENTER};val sh=ImageView(this).apply{setImageResource(R.drawable.ic_shield_modern);drawable?.mutate()?.setTint(color);scaleType=ImageView.ScaleType.CENTER_INSIDE};c.addView(sh,LinearLayout.LayoutParams(dp(24),dp(28)));c.addView(text(name,11f,color,true).apply{gravity=Gravity.CENTER;maxLines=1;setAutoSizeTextTypeUniformWithConfiguration(9,12,1,android.util.TypedValue.COMPLEX_UNIT_SP)},LinearLayout.LayoutParams(-1,dp(24)));return c}
+
+    private fun modesScreen():View{
+        val page=col();page.addView(screenHeader("البطولات والأنماط",false),LinearLayout.LayoutParams(-1,dp(56)));page.addView(text("اختر نوع لوحة التوقيت التي تريد إنشاءها",12f,muted()).apply{gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(8))})
+        val grid=GridLayout(this).apply{columnCount=2;alignmentMode=GridLayout.ALIGN_BOUNDS;setPadding(dp(5),dp(5),dp(5),dp(5))}
+        fun add(label:String,icon:Int,type:String,color:Int){val b=actionButton(label,icon,color,Color.WHITE,86){showNewMatchDialog(type)};val lp=GridLayout.LayoutParams().apply{width=0;height=dp(if(compact)86 else 96);columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1,1f);setMargins(dp(5),dp(5),dp(5),dp(5))};grid.addView(b,lp)}
+        add("مباراة كرة قدم",R.drawable.ic_goal,MatchState.TYPE_MATCH,green);add("ضربات ترجيح",R.drawable.ic_goal,MatchState.TYPE_SHOOTOUT,blue);add("مباراة أشواط",R.drawable.ic_card,MatchState.TYPE_SETS,orange);add("كرة السلة",R.drawable.ic_card,MatchState.TYPE_BASKETBALL,0xFF7254C9.toInt());page.addView(grid,LinearLayout.LayoutParams(-1,0,1f));return page
+    }
+
+    private fun globalLogScreen():View{
+        val page=col();page.addView(screenHeader("السجل الكامل للأحداث",false),LinearLayout.LayoutParams(-1,dp(56)));val scroll=ScrollView(this);val list=col().apply{setPadding(dp(5),dp(8),dp(5),dp(8))};val items=states.flatMap{st->st.events.map{st to it}}.asReversed();if(items.isEmpty())list.addView(text("لا توجد أحداث مسجلة",13f,muted()).apply{gravity=Gravity.CENTER;setPadding(0,dp(40),0,dp(40))})else items.forEach{(st,e)->val rr=eventMiniRow(st,e).apply{background=shape(surface(),13,line());setPadding(dp(7),dp(7),dp(7),dp(7));setOnClickListener{selectedId=st.id;screenMode="match";renderActive()}};list.addView(rr,LinearLayout.LayoutParams(-1,dp(60)).apply{bottomMargin=dp(6)})};scroll.addView(list);page.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));return page
+    }
+
+    private fun appSettingsScreen():View{
+        val page=col();page.addView(screenHeader("الإعدادات",false),LinearLayout.LayoutParams(-1,dp(56)));val scroll=ScrollView(this);val body=col().apply{setPadding(dp(5),dp(8),dp(5),dp(8))}
+        body.addView(settingsRow("الوضع الداكن","تغيير نمط التطبيق",R.drawable.ic_theme){dark=!dark;prefs.edit().putBoolean("dark",dark).apply();buildUi()});body.addView(settingsRow("تصدير نسخة احتياطية","حفظ جميع المباريات والسجلات",R.drawable.ic_report_smart){exportBackup()});body.addView(settingsRow("استيراد نسخة احتياطية","استعادة ملف JSON سابق",R.drawable.ic_list_smart){importBackup()});body.addView(settingsRow(if(showArchived)"إخفاء الأرشيف" else "عرض الأرشيف","إدارة المباريات المؤرشفة",R.drawable.ic_archive){showArchived=!showArchived;screenMode="matches";renderActive()});body.addView(settingsRow("حول التطبيق","ساعات التوقيت • v1.4.0",R.mipmap.ic_launcher){Toast.makeText(this,"ساعات التوقيت v1.4.0",Toast.LENGTH_SHORT).show()});scroll.addView(body);page.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));return page
+    }
+
+    private fun settingsRow(title:String,subtitle:String,icon:Int,action:()->Unit):View{val r=row(8).apply{setPadding(dp(10),dp(9),dp(10),dp(9));background=shape(surface(),14,line());setOnClickListener{action()}};val iv=ImageView(this).apply{setImageResource(icon);drawable?.mutate()?.setTint(green);scaleType=ImageView.ScaleType.CENTER_INSIDE};r.addView(iv,LinearLayout.LayoutParams(dp(38),dp(38)));val c=col();c.addView(text(title,13f,ink(),true));c.addView(text(subtitle,10.5f,muted()));r.addView(c,LinearLayout.LayoutParams(0,-2,1f));r.addView(text("‹",25f,muted(),true));r.layoutParams=LinearLayout.LayoutParams(-1,dp(64)).apply{bottomMargin=dp(7)};return r}
+
+    private fun showNewMatchDialog(type:String){
+        val d=styledDialog(if(type==MatchState.TYPE_MATCH)"إضافة مباراة" else "إضافة ${when(type){MatchState.TYPE_SHOOTOUT->"ضربات ترجيح";MatchState.TYPE_SETS->"مباراة أشواط";else->"كرة السلة"}}",R.drawable.ic_add_smart,green);val body=d.second
+        val title=input("اسم البطولة / المباراة",InputType.TYPE_CLASS_TEXT).apply{setText(when(type){MatchState.TYPE_SHOOTOUT->"ضربات ترجيح";MatchState.TYPE_SETS->"مباراة أشواط";MatchState.TYPE_BASKETBALL->"كرة السلة";else->"المباراة ${states.size+1}"})};val home=input("الفريق الأول",InputType.TYPE_CLASS_TEXT).apply{setText("الفريق 1")};val away=input("الفريق الثاني",InputType.TYPE_CLASS_TEXT).apply{setText("الفريق 2")};val venue=input("ملعب المباراة",InputType.TYPE_CLASS_TEXT)
+        body.addView(labeledField("اسم المباراة",title));body.addView(labeledField("الفريق الأول • أخضر",home));body.addView(labeledField("الفريق الثاني • أزرق",away));body.addView(labeledField("ملعب المباراة",venue))
+        val duration=input("المدة",InputType.TYPE_CLASS_NUMBER).apply{setText(when(type){MatchState.TYPE_BASKETBALL->"10";MatchState.TYPE_SETS->"25";else->"45"})};body.addView(labeledField(when(type){MatchState.TYPE_BASKETBALL->"مدة الربع بالدقائق";MatchState.TYPE_SETS->"نقاط الشوط";else->"مدة الشوط بالدقائق"},duration))
+        body.addView(dialogButtons("حفظ المباراة",green,R.drawable.ic_check_smart,"إلغاء",{val st=MatchState(type=type,title=title.text.toString().trim().ifBlank{"مباراة"},home=home.text.toString().trim().ifBlank{"الفريق 1"},away=away.text.toString().trim().ifBlank{"الفريق 2"},notes=venue.text.toString().trim());val v=duration.text.toString().toIntOrNull();if(v!=null)when(type){MatchState.TYPE_BASKETBALL->st.quarterMinutes=v.coerceIn(1,30);MatchState.TYPE_SETS->st.pointsPerSet=v.coerceIn(1,100);else->st.halfMinutes=v.coerceIn(1,200)};states.add(st);selectedId=st.id;screenMode="match";save();d.first.dismiss();renderActive()},{d.first.dismiss()}));d.first.show();fitDialog(d.first,0.93f,0.90f)
+    }
+
+    private fun showLostTimeDialog(s:MatchState){val d=styledDialog("إضافة وقت بدل ضائع",R.drawable.ic_add_smart,blue);val body=d.second;val minutes=input("الدقائق",InputType.TYPE_CLASS_NUMBER).apply{setText("1");textDirection=View.TEXT_DIRECTION_LTR};body.addView(labeledField("عدد الدقائق",minutes));body.addView(text("سيتم إضافة الوقت مباشرة إلى عداد الوقت بدل الضائع.",11f,muted()).apply{gravity=Gravity.CENTER;setPadding(0,dp(12),0,dp(12))},LinearLayout.LayoutParams(-1,0,1f));body.addView(dialogButtons("إضافة",blue,R.drawable.ic_check_smart,"إلغاء",{val m=minutes.text.toString().toIntOrNull()?.coerceIn(1,30)?:1;s.lostMs+=m*60_000L;save();d.first.dismiss();renderActive()},{d.first.dismiss()}));d.first.show();fitDialog(d.first,0.88f,0.48f)}
+
+    private fun bigTeamCard(name:String,score:TextView,color:Int):View{val c=col().apply{gravity=Gravity.CENTER;background=shape(color,12);setPadding(dp(8),dp(8),dp(8),dp(8))};c.addView(text(name,16f,Color.WHITE,true).apply{gravity=Gravity.CENTER;maxLines=1;setAutoSizeTextTypeUniformWithConfiguration(12,17,1,android.util.TypedValue.COMPLEX_UNIT_SP)});c.addView(score.apply{gravity=Gravity.CENTER;typeface=Typeface.MONOSPACE;textLocale=java.util.Locale.US},LinearLayout.LayoutParams(-1,0,1f));return c}
+'''
+          marker = '    private fun save(){'
+          if marker not in s:
+              raise SystemExit('save marker missing')
+          s = s.replace(marker, helpers + '\n' + marker, 1)
+
+          # Fix compact legacy Kotlin syntax in untouched sport panels.
+          s = s.replace('return"', 'return "').replace(')else ', ') else ').replace(')else\n', ') else\n')
+          s = s.replace('coerceAtLeast(0)else ', 'coerceAtLeast(0) else ')
+          p.write_text(s, encoding='utf-8')
+
+          # Add optional note to events while keeping old JSON compatible.
+          m = Path('matchclock-native/app/src/main/java/com/aborayan/matchclock/Models.kt')
+          x = m.read_text(encoding='utf-8')
+          x = x.replace('    var number: String = ""\n) {', '    var number: String = "",\n    var note: String = ""\n) {')
+          x = x.replace('        put("player", player); put("number", number)', '        put("player", player); put("number", number); put("note", note)')
+          x = x.replace('            o.optString("player"), o.optString("number")\n        )', '            o.optString("player"), o.optString("number"), o.optString("note")\n        )')
+          m.write_text(x,encoding='utf-8')
+
+          # Simple vector resources used by the new visual language.
+          d = Path('matchclock-native/app/src/main/res/drawable')
+          (d/'ic_shield_modern.xml').write_text('''<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFFFF" android:pathData="M12,2 L4,5 V10.5 C4,15.8 7.3,20.2 12,22 C16.7,20.2 20,15.8 20,10.5 V5 Z M12,5 L17,6.8 V10.5 C17,14.2 15,17.3 12,18.8 C9,17.3 7,14.2 7,10.5 V6.8 Z"/></vector>''',encoding='utf-8')
+          (d/'ic_trophy_modern.xml').write_text('''<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFFFF" android:pathData="M7,3 H17 V6 H20 V9 C20,12 18,14 15,14.7 C14.5,16.2 13.5,17.3 12,18 V20 H16 V22 H8 V20 H11 V18 C9.5,17.3 8.5,16.2 8,14.7 C5,14 3,12 3,9 V6 H7 Z M5,8 V9 C5,10.6 6,11.8 7.5,12.4 C7.2,11.2 7,9.8 7,8 Z M17,8 C17,9.8 16.8,11.2 16.5,12.4 C18,11.8 19,10.6 19,9 V8 Z"/></vector>''',encoding='utf-8')
+
+          g=Path('matchclock-native/app/build.gradle.kts')
+          gx=g.read_text(encoding='utf-8').replace('versionCode = 3','versionCode = 5').replace('versionName = "1.2.0"','versionName = "1.4.0"')
+          if 'versionCode = 5' not in gx or 'versionName = "1.4.0"' not in gx: raise SystemExit('version patch failed')
+          g.write_text(gx,encoding='utf-8')
+          PY
+
+      - name: Verify modern UI patch
+        run: |
+          grep -q 'versionName = "1.4.0"' matchclock-native/app/build.gradle.kts
+          grep -q 'private fun bottomNavigation' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'private fun matchesScreen' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'private fun modesScreen' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'private fun appSettingsScreen' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          grep -q 'String.format(java.util.Locale.US' matchclock-native/app/src/main/java/com/aborayan/matchclock/SmartRefereeActivity.kt
+          test -f matchclock-native/app/src/main/res/drawable/ic_shield_modern.xml
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build APK
+        run: gradle -p matchclock-native :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          mkdir -p verified
+          cp matchclock-native/app/build/outputs/apk/debug/app-debug.apk verified/MatchClock-v1.4.0.apk
+          unzip -t verified/MatchClock-v1.4.0.apk > verified/zip-integrity.txt
+          $ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose --print-certs verified/MatchClock-v1.4.0.apk > verified/signature-report.txt
+          $ANDROID_HOME/build-tools/36.0.0/aapt dump badging verified/MatchClock-v1.4.0.apk > verified/apk-info.txt
+          sha256sum verified/MatchClock-v1.4.0.apk > verified/SHA256SUMS.txt
+          grep -q "package: name='com.aborayan.matchclock' versionCode='5' versionName='1.4.0'" verified/apk-info.txt
+          grep -q "launchable-activity: name='com.aborayan.matchclock.SmartRefereeActivity'" verified/apk-info.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchClock-v1.4.0-Modern-APK
+          path: verified/
+          if-no-files-found: error
+          retention-days: 7
