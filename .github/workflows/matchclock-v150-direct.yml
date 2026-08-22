@@ -1,0 +1,88 @@
+name: MatchClock V1.5.0 Direct Build
+
+on:
+  push:
+    branches:
+      - build/matchclock-v150-direct-20260822
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Reconstruct Kotlin activity
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TARGET="matchclock-v150/app/src/main/java/com/aborayan/matchclock/MatchClockV14Activity.kt"
+          mkdir -p "$(dirname "$TARGET")"
+          cat matchclock-v150/ci/activity/part00 \
+              matchclock-v150/ci/activity/part01 \
+              matchclock-v150/ci/activity/part02 \
+              matchclock-v150/ci/activity/part03 \
+              matchclock-v150/ci/activity/part04 \
+              matchclock-v150/ci/activity/part05 \
+              matchclock-v150/ci/activity/part06 \
+              matchclock-v150/ci/activity/part07 \
+              matchclock-v150/ci/activity/part08 \
+              matchclock-v150/ci/activity/part09 > "$TARGET"
+          echo "505567fbdc54698bb14351895d10b26ade2965f3325ae720372ee2c9ae913556  $TARGET" | sha256sum -c -
+          grep -q 'versionName = "1.5.0"' matchclock-v150/app/build.gradle.kts
+          grep -q 'buildQuickDashboardScreen' "$TARGET"
+          grep -q 'buildLandscapeDashboardScreen' "$TARGET"
+          grep -q 'showUndoBanner' "$TARGET"
+          grep -q 'showEditEventDialog' "$TARGET"
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd matchclock-v150
+          gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APK=matchclock-v150/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          "$BT/apksigner" verify --verbose "$APK"
+          "$BT/zipalign" -c -P 16 -v 4 "$APK"
+          "$BT/aapt" dump badging "$APK" | grep "package: name='com.aborayan.matchclock'"
+          cp "$APK" MatchClock-V1.5.0.apk
+          sha256sum MatchClock-V1.5.0.apk > MatchClock-V1.5.0.apk.sha256
+          zip -qr MatchClock-V1.5.0-Source.zip matchclock-v150 -x 'matchclock-v150/app/build/*'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchClock-V1.5.0-Final
+          path: |
+            MatchClock-V1.5.0.apk
+            MatchClock-V1.5.0.apk.sha256
+            MatchClock-V1.5.0-Source.zip
+          if-no-files-found: error
