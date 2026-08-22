@@ -1,0 +1,95 @@
+dp(5), dp(10), dp(5))
+            addView(button("‹ رجوع", 0xFF163047.toInt(), Color.WHITE, 42, 12) { currentScreen = "matches"; buildShell() }, LinearLayout.LayoutParams(dp(92), dp(42)))
+            addView(txt("وضع الحكم السريع", 16f, Color.WHITE, true, Gravity.CENTER), LinearLayout.LayoutParams(0, dp(42), 1f))
+            addView(button("☷ كامل", 0xFF163047.toInt(), Color.WHITE, 42, 12) { prefs.edit().putString("referee_mode", "full").apply(); buildShell() }, LinearLayout.LayoutParams(dp(92), dp(42)))
+        }
+        page.addView(top, LinearLayout.LayoutParams(-1, dp(54)))
+        val body = col().apply { setPadding(dp(10), dp(8), dp(10), dp(10)) }
+        val colors = teamColors(s)
+        val scoreBand = row().apply { background = shape(navy, 16); setPadding(dp(8), dp(7), dp(8), dp(7)) }
+        scoreBand.addView(teamScorePanel(s.home, s.scoreHome, colors.first), LinearLayout.LayoutParams(0, dp(94), 1f))
+        liveScore = txt("${s.scoreHome} - ${s.scoreAway}", 19f, Color.WHITE, true, Gravity.CENTER)
+        scoreBand.addView(liveScore, LinearLayout.LayoutParams(dp(86), dp(94)))
+        scoreBand.addView(teamScorePanel(s.away, s.scoreAway, colors.second), LinearLayout.LayoutParams(0, dp(94), 1f))
+        body.addView(scoreBand)
+        liveTimer = txt(clock(s.currentElapsed()), if (isTablet) 78f else 64f, ink(), true, Gravity.CENTER).apply { typeface = Typeface.MONOSPACE }
+        body.addView(liveTimer, LinearLayout.LayoutParams(-1, 0, 1f))
+        liveAdded = txt("+${clockAdded(s.currentLost())} بدل ضائع", 14f, amber, true, Gravity.CENTER)
+        body.addView(liveAdded, LinearLayout.LayoutParams(-1, dp(28)))
+        val stateRow = row().apply { gravity = Gravity.CENTER }
+        liveStatus = chip(if (s.running) "مباشر" else "متوقف", if (s.running) green else red, Color.WHITE)
+        stateRow.addView(chip(periodLabel(s), surface2(), ink()))
+        stateRow.addView(liveStatus)
+        body.addView(stateRow, LinearLayout.LayoutParams(-1, dp(38)))
+        val controls = row()
+        controls.addView(button(if (s.running) "Ⅱ إيقاف" else "▶ تشغيل", if (s.running) navy else green, Color.WHITE, 58) { if (s.running) s.freeze() else s.resume(); save(); renderScreen() }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { marginEnd = dp(4) })
+        controls.addView(button("↶ تراجع", blue, Color.WHITE, 58) { undoLastDecision(s) }, LinearLayout.LayoutParams(0, dp(58), 0.8f).apply { marginStart = dp(4) })
+        body.addView(controls, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(6) })
+        val events = row()
+        events.addView(quickAction("⚽", "هدف", green) { showEventDialog(s, "goal") }, LinearLayout.LayoutParams(0, dp(74), 1f))
+        events.addView(quickAction("▣", "إنذار", amber) { showEventDialog(s, "yellow") }, LinearLayout.LayoutParams(0, dp(74), 1f).apply { marginStart=dp(5); marginEnd=dp(5) })
+        events.addView(quickAction("■", "طرد", red) { showEventDialog(s, "red") }, LinearLayout.LayoutParams(0, dp(74), 1f))
+        events.addView(quickAction("◴+", "ضائع", blue) { showAddedTimeDialog(s) }, LinearLayout.LayoutParams(0, dp(74), 1f).apply { marginStart=dp(5) })
+        body.addView(events, LinearLayout.LayoutParams(-1, dp(74)).apply { topMargin = dp(8) })
+        body.addView(button("▤ السجل الكامل", surface2(), ink(), 44) { showLogDialog(s) }, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(8) })
+        page.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
+        return page
+    }
+
+    private fun buildLandscapeDashboardScreen(s: MatchState): View {
+        currentDashboardId = s.id
+        val page = col().apply { setBackgroundColor(0xFF050B12.toInt()) }
+        val top = row().apply {
+            setBackgroundColor(navy)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            addView(button("‹", 0xFF163047.toInt(), Color.WHITE, 40, 10) { currentScreen = "matches"; buildShell() }, LinearLayout.LayoutParams(dp(54), dp(40)))
+            addView(txt("${s.home}  •  ${s.title}  •  ${s.away}", 14f, Color.WHITE, true, Gravity.CENTER), LinearLayout.LayoutParams(0, dp(40), 1f))
+            addView(button("▤", 0xFF163047.toInt(), Color.WHITE, 40, 10) { showLogDialog(s) }, LinearLayout.LayoutParams(dp(54), dp(40)))
+        }
+        page.addView(top, LinearLayout.LayoutParams(-1, dp(48)))
+        val main = row().apply { setPadding(dp(8), dp(6), dp(8), dp(6)) }
+        val colors = teamColors(s)
+        main.addView(teamScorePanel(s.home, s.scoreHome, colors.first), LinearLayout.LayoutParams(0, -1, 0.26f).apply { marginEnd=dp(6) })
+        val center = col().apply { gravity = Gravity.CENTER; background = shape(0xFF0B1620.toInt(), 16); setPadding(dp(8), dp(5), dp(8), dp(5)) }
+        liveTimer = txt(clock(s.currentElapsed()), if (resources.configuration.screenHeightDp < 400) 52f else 64f, Color.WHITE, true, Gravity.CENTER).apply { typeface = Typeface.MONOSPACE }
+        center.addView(liveTimer, LinearLayout.LayoutParams(-1, 0, 1f))
+        liveScore = txt("${s.scoreHome}  -  ${s.scoreAway}", 30f, Color.WHITE, true, Gravity.CENTER)
+        center.addView(liveScore, LinearLayout.LayoutParams(-1, dp(42)))
+        liveAdded = txt("+${clockAdded(s.currentLost())} بدل ضائع", 13f, amber, true, Gravity.CENTER)
+        center.addView(liveAdded, LinearLayout.LayoutParams(-1, dp(24)))
+        liveStatus = txt(if (s.running) "● مباشر" else "● متوقف", 11f, if (s.running) green else red, true, Gravity.CENTER)
+        center.addView(liveStatus, LinearLayout.LayoutParams(-1, dp(22)))
+        val ctr = row()
+        ctr.addView(button(if (s.running) "Ⅱ إيقاف" else "▶ تشغيل", if (s.running) navy2 else green, Color.WHITE, 46) { if (s.running) s.freeze() else s.resume(); save(); renderScreen() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd=dp(3) })
+        ctr.addView(button("↶ تراجع", blue, Color.WHITE, 46) { undoLastDecision(s) }, LinearLayout.LayoutParams(0, dp(46), 0.8f).apply { marginStart=dp(3) })
+        center.addView(ctr, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin=dp(4) })
+        main.addView(center, LinearLayout.LayoutParams(0, -1, 0.48f))
+        main.addView(teamScorePanel(s.away, s.scoreAway, colors.second), LinearLayout.LayoutParams(0, -1, 0.26f).apply { marginStart=dp(6) })
+        page.addView(main, LinearLayout.LayoutParams(-1, 0, 1f))
+        val actions = row().apply { setPadding(dp(8), dp(4), dp(8), dp(8)) }
+        actions.addView(button("⚽ هدف", green, Color.WHITE, 52) { showEventDialog(s, "goal") }, LinearLayout.LayoutParams(0, dp(52), 1f))
+        actions.addView(button("▣ إنذار", amber, Color.WHITE, 52) { showEventDialog(s, "yellow") }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart=dp(5); marginEnd=dp(5) })
+        actions.addView(button("■ طرد", red, Color.WHITE, 52) { showEventDialog(s, "red") }, LinearLayout.LayoutParams(0, dp(52), 1f))
+        actions.addView(button("◴+ وقت ضائع", blue, Color.WHITE, 52) { showAddedTimeDialog(s) }, LinearLayout.LayoutParams(0, dp(52), 1.15f).apply { marginStart=dp(5) })
+        page.addView(actions, LinearLayout.LayoutParams(-1, dp(64)))
+        return page
+    }
+
+    private fun teamScorePanel(name: String, score: Int, color: Int): View = col().apply {
+        gravity = Gravity.CENTER
+        background = shape(color, 14)
+        addView(txt(name, 14f, Color.WHITE, true, Gravity.CENTER))
+        addView(txt(score.toString(), if (isTablet) 39f else 34f, Color.WHITE, true, Gravity.CENTER))
+    }
+
+    private fun chip(label: String, fill: Int, color: Int) = txt(label, 10.5f, color, true, Gravity.CENTER).apply {
+        background = shape(fill, 99, if (fill == surface2()) line() else null)
+        setPadding(dp(10), dp(5), dp(10), dp(5))
+        val lp = LinearLayout.LayoutParams(-2, dp(30))
+        lp.marginStart = dp(3); lp.marginEnd = dp(3)
+        layoutParams = lp
+    }
+
+    private fun quickAction(icon: String, label: String, color: Int, onClick: () -> Unit) = col().apply {
+        gravity = Gravity.CENTER
+  
