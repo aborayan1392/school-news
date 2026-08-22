@@ -1,0 +1,149 @@
+       background = shape(color, 13)
+        setPadding(dp(3), dp(7), dp(3), dp(7))
+        addView(txt(icon, 23f, Color.WHITE, true, Gravity.CENTER), LinearLayout.LayoutParams(-1, 0, 1f))
+        addView(txt(label, 11.5f, Color.WHITE, true, Gravity.CENTER), LinearLayout.LayoutParams(-1, 0, 0.7f))
+        setOnClickListener { onClick() }
+    }
+
+    private fun recentEventsCard(s: MatchState): View {
+        val box = col().apply {
+            background = shape(surface(), 14, line())
+            setPadding(dp(9), dp(5), dp(9), dp(5))
+        }
+        val ev = s.events.asReversed().take(3)
+        if (ev.isEmpty()) {
+            box.addView(txt("لا توجد أحداث مسجلة بعد.", 12f, muted(), false, Gravity.CENTER).apply { setPadding(0, dp(14), 0, dp(14)) })
+        } else ev.forEachIndexed { i, e ->
+            box.addView(eventRow(s, e))
+            if (i != ev.lastIndex) box.addView(View(this).apply { setBackgroundColor(line()) }, LinearLayout.LayoutParams(-1, dp(1)))
+        }
+        return box
+    }
+
+    private fun eventRow(s: MatchState, e: MatchEvent, interactive: Boolean = true): View {
+        val r = row().apply {
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            if (interactive) {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showEventActions(s, e) }
+            }
+        }
+        val teamColor = if (e.team == "home") teamColors(s).first else teamColors(s).second
+        val icon = when (e.kind) { "goal" -> "⚽"; "yellow" -> "▣"; "red" -> "■"; "extra" -> "◴"; else -> "●" }
+        r.addView(txt(icon, 18f, eventColor(e.kind), true, Gravity.CENTER), LinearLayout.LayoutParams(dp(34), dp(38)))
+        val who = if (e.player.isBlank()) "بدون اسم لاعب" else "${e.player}${if (e.number.isBlank()) "" else " #${e.number}"}"
+        val info = col().apply {
+            addView(txt(who, 12.5f, ink(), true))
+            addView(txt(teamName(s, e.team), 10.5f, teamColor, true))
+        }
+        r.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+        val kindBox = col().apply {
+            gravity = Gravity.CENTER
+            addView(txt(eventName(e.kind), 11.5f, eventColor(e.kind), true, Gravity.CENTER))
+            addView(txt(clock(e.timeMs), 10.5f, muted(), false, Gravity.CENTER))
+        }
+        r.addView(kindBox, LinearLayout.LayoutParams(dp(96), -2))
+        if (interactive) r.addView(txt("⋮", 20f, muted(), true, Gravity.CENTER), LinearLayout.LayoutParams(dp(28), dp(38)))
+        return r
+    }
+
+    private fun showEventActions(s: MatchState, e: MatchEvent) {
+        val options = arrayOf("تعديل الحدث", "حذف الحدث")
+        AlertDialog.Builder(this)
+            .setTitle("${eventName(e.kind)} • ${clock(e.timeMs)}")
+            .setMessage("${teamName(s, e.team)}${if (e.player.isBlank()) "" else " • ${e.player}${if (e.number.isBlank()) "" else " #${e.number}"}"}")
+            .setItems(options) { _, which ->
+                if (which == 0) showEditEventDialog(s, e) else confirmDeleteEvent(s, e)
+            }.show()
+    }
+
+    private fun showEditEventDialog(s: MatchState, e: MatchEvent) {
+        val box = col().apply { setPadding(dp(18), dp(8), dp(18), dp(4)) }
+        var team = e.team
+        val teamRow = row()
+        val homeBtn = button(s.home, if (team == "home") teamColors(s).first else surface2(), if (team == "home") Color.WHITE else ink(), 44)
+        val awayBtn = button(s.away, if (team == "away") teamColors(s).second else surface2(), if (team == "away") Color.WHITE else ink(), 44)
+        fun refresh() {
+            homeBtn.background = shape(if (team == "home") teamColors(s).first else surface2(), 12, if (team == "home") null else line())
+            homeBtn.setTextColor(if (team == "home") Color.WHITE else ink())
+            awayBtn.background = shape(if (team == "away") teamColors(s).second else surface2(), 12, if (team == "away") null else line())
+            awayBtn.setTextColor(if (team == "away") Color.WHITE else ink())
+        }
+        homeBtn.setOnClickListener { team = "home"; refresh() }
+        awayBtn.setOnClickListener { team = "away"; refresh() }
+        teamRow.addView(homeBtn, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
+        teamRow.addView(awayBtn, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(4) })
+        box.addView(teamRow)
+        val player = EditText(this).apply { hint = "اسم اللاعب / الملاحظة"; setText(e.player); layoutDirection = View.LAYOUT_DIRECTION_RTL }
+        val number = EditText(this).apply { hint = "رقم اللاعب"; setText(e.number); inputType = InputType.TYPE_CLASS_NUMBER }
+        box.addView(player, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(10) })
+        box.addView(number, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(6) })
+        AlertDialog.Builder(this).setTitle("تعديل ${eventName(e.kind)}").setView(box)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حفظ") { _, _ ->
+                val oldTeam = e.team
+                if (e.kind == "goal" && oldTeam != team) {
+                    if (oldTeam == "home") s.scoreHome = (s.scoreHome - 1).coerceAtLeast(0) else s.scoreAway = (s.scoreAway - 1).coerceAtLeast(0)
+                    if (team == "home") s.scoreHome++ else s.scoreAway++
+                }
+                e.team = team
+                e.player = player.text.toString().trim()
+                e.number = number.text.toString().trim()
+                save(); renderScreen()
+                Toast.makeText(this, "تم تعديل الحدث", Toast.LENGTH_SHORT).show()
+            }.show()
+    }
+
+    private fun confirmDeleteEvent(s: MatchState, e: MatchEvent) {
+        AlertDialog.Builder(this).setTitle("حذف الحدث")
+            .setMessage("هل تريد حذف ${eventName(e.kind)} عند ${clock(e.timeMs)}؟")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حذف") { _, _ ->
+                removeEventAndRollback(s, e)
+                save(); renderScreen()
+            }.show()
+    }
+
+    private fun removeEventAndRollback(s: MatchState, e: MatchEvent): Boolean {
+        if (!s.events.remove(e)) return false
+        when (e.kind) {
+            "goal" -> if (e.team == "home") s.scoreHome = (s.scoreHome - 1).coerceAtLeast(0) else s.scoreAway = (s.scoreAway - 1).coerceAtLeast(0)
+            "extra" -> {
+                val mins = Regex("\\d+").find(e.player)?.value?.toIntOrNull() ?: 0
+                if (mins > 0) s.lostMs = (s.lostMs - mins * 60_000L).coerceAtLeast(0L)
+            }
+        }
+        return true
+    }
+
+    private fun showUndoBanner(s: MatchState, e: MatchEvent, message: String) {
+        undoBannerDismiss?.let { handler.removeCallbacks(it) }
+        undoBanner?.let { host.removeView(it) }
+        val bar = row().apply {
+            background = shape(0xFF17212B.toInt(), 16)
+            elevation = dp(8).toFloat()
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            addView(txt(message, 12.5f, Color.WHITE, true), LinearLayout.LayoutParams(0, dp(42), 1f))
+            addView(button("تراجع", blue, Color.WHITE, 40, 12) {
+                if (removeEventAndRollback(s, e)) { save(); renderScreen() }
+                undoBannerDismiss?.let { handler.removeCallbacks(it) }
+            }, LinearLayout.LayoutParams(dp(88), dp(40)))
+        }
+        undoBanner = bar
+        host.addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM).apply {
+            leftMargin = dp(12); rightMargin = dp(12); bottomMargin = dp(10)
+        })
+        val dismiss = Runnable {
+            try { host.removeView(bar) } catch (_: Throwable) {}
+            if (undoBanner === bar) undoBanner = null
+        }
+        undoBannerDismiss = dismiss
+        handler.postDelayed(dismiss, 3800L)
+    }
+
+    private fun showEventDialog(s: MatchState, kind: String) {
+        val d = Dialog(this)
+        val box = col().apply {
+            setPadding(dp(18), dp(14), dp(18), dp(18))
+            background = shape
