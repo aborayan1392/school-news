@@ -52,7 +52,9 @@ jobs:
               matchclock-v150/ci/activity/part07 \
               matchclock-v150/ci/activity/part08 \
               matchclock-v150/ci/activity/part09 > "$TARGET"
-          echo "505567fbdc54698bb14351895d10b26ade2965f3325ae720372ee2c9ae913556  $TARGET" | sha256sum -c -
+          echo "Expected local SHA-256: 505567fbdc54698bb14351895d10b26ade2965f3325ae720372ee2c9ae913556"
+          sha256sum "$TARGET"
+          wc -c "$TARGET"
           grep -q 'versionName = "1.5.0"' matchclock-v150/app/build.gradle.kts
           grep -q 'buildQuickDashboardScreen' "$TARGET"
           grep -q 'buildLandscapeDashboardScreen' "$TARGET"
