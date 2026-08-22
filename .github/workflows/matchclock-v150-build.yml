@@ -45,12 +45,13 @@ jobs:
           echo "bee97408746a8ec693f20af1998b25dc46cd93547898bda59507c8114f704ec0  ci/mc150/part02" | sha256sum -c -
           echo "5aced29725b22151dcba19530c7fa11b0a2f2c7378eb776c104310d6708c8a6b  ci/mc150/part03a" | sha256sum -c -
           echo "2160ace5f2cf8e1b8b7617f44b934f61dfdfa899855feb82a38f3260e6da794c  ci/mc150/part03b1" | sha256sum -c -
-          echo "52a5954c437367b8b08b6d5ffbf44acec6b9b7d2b202d20e721f7d5669b73a4e  ci/mc150/part03b2" | sha256sum -c -
+          echo "d6bd03a9235b8c301f1d24b5a6e58baa75e01ee76d9dd9be2b55c56a1b78ec29  ci/mc150/part03b2a" | sha256sum -c -
+          echo "aa0f4c15289a6c11256bb882bdc34cf92f889298389791dbb7efe885730ae099  ci/mc150/part03b2b" | sha256sum -c -
           echo "cf86c9b2f4ee0807212bfe8e76a5b05e47eff5aa2a8f7c48f9cd34c57b3d1c54  ci/mc150/part04" | sha256sum -c -
           echo "4db0d8c95bc7151bf5a626477b9a9388a51a6bb49057e4dec6f81ad6c9f8548a  ci/mc150/part05" | sha256sum -c -
           echo "d4f057d38249ad556a2a7a7a15876339fb1d880288dfe678d9f183d5f91df671  ci/mc150/part06" | sha256sum -c -
           echo "79a64bf36ddc51142ffc897c1d4eef05d71502f48e314cd004f07e2f273c120a  ci/mc150/part07" | sha256sum -c -
-          cat ci/mc150/part00 ci/mc150/part01 ci/mc150/part02 ci/mc150/part03a ci/mc150/part03b1 ci/mc150/part03b2 ci/mc150/part04 ci/mc150/part05 ci/mc150/part06 ci/mc150/part07 > /tmp/matchclock.b64
+          cat ci/mc150/part00 ci/mc150/part01 ci/mc150/part02 ci/mc150/part03a ci/mc150/part03b1 ci/mc150/part03b2a ci/mc150/part03b2b ci/mc150/part04 ci/mc150/part05 ci/mc150/part06 ci/mc150/part07 > /tmp/matchclock.b64
           base64 -d /tmp/matchclock.b64 > /tmp/MatchClock-V1.5.0-Source.zip
           echo "7c724c895010f1a8fb3dd428f1e0d7fe9eb4d5cec256eec110f7c2c7f97da312  /tmp/MatchClock-V1.5.0-Source.zip" | sha256sum -c -
           rm -rf /tmp/matchclock-src
