@@ -1,0 +1,224 @@
+package com.aborayan.matchclock
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.Dialog
+import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.InputType
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowManager
+import android.widget.*
+import org.json.JSONArray
+import org.json.JSONObject
+
+class MatchClockV14Activity : Activity() {
+
+    private val prefs by lazy { getSharedPreferences("matchclock-state", MODE_PRIVATE) }
+    private val states = mutableListOf<MatchState>()
+    private val handler = Handler(Looper.getMainLooper())
+
+    private lateinit var root: LinearLayout
+    private lateinit var host: FrameLayout
+
+    private var currentScreen = "matches"
+    private var selectedId = -1L
+    private var matchFilter = "all"
+    private var logFilter = "all"
+    private var dark = false
+    private var sounds = true
+
+    private var liveTimer: TextView? = null
+    private var liveAdded: TextView? = null
+    private var liveScore: TextView? = null
+    private var liveStatus: TextView? = null
+    private var currentDashboardId = -1L
+
+    private val navy = 0xFF071625.toInt()
+    private val navy2 = 0xFF0D2237.toInt()
+    private val green = 0xFF08A651.toInt()
+    private val greenDark = 0xFF07853F.toInt()
+    private val blue = 0xFF1268D8.toInt()
+    private val amber = 0xFFFFA000.toInt()
+    private val red = 0xFFE53935.toInt()
+    private val teal = 0xFF16A7A8.toInt()
+    private val purple = 0xFF6C4CE4.toInt()
+    private val palette = intArrayOf(green, blue, amber, red, teal, purple)
+
+    private val isTablet get() = resources.configuration.screenWidthDp >= 700
+    private val isLandscape get() = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    private val refereeMode get() = prefs.getString("referee_mode", "full") ?: "full"
+
+    private var undoBanner: View? = null
+    private var undoBannerDismiss: Runnable? = null
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            updateLiveViews()
+            handler.postDelayed(this, 250L)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            load()
+            buildShell()
+            handler.post(ticker)
+        } catch (t: Throwable) {
+            showStartupFallback(t)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterImmersiveMode()
+    }
+
+    override fun onPause() {
+        save()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(ticker)
+        save()
+        super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        buildShell()
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun bg() = if (dark) 0xFF08121B.toInt() else 0xFFF4F6F8.toInt()
+    private fun surface() = if (dark) 0xFF111F2C.toInt() else Color.WHITE
+    private fun surface2() = if (dark) 0xFF172A3A.toInt() else 0xFFF0F3F6.toInt()
+    private fun ink() = if (dark) Color.WHITE else 0xFF111820.toInt()
+    private fun muted() = if (dark) 0xFFA9B5C0.toInt() else 0xFF66717D.toInt()
+    private fun line() = if (dark) 0xFF30404F.toInt() else 0xFFDCE2E8.toInt()
+
+    private fun shape(color: Int, radius: Int = 16, stroke: Int? = null, sw: Int = 1) =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius).toFloat()
+            if (stroke != null) setStroke(dp(sw), stroke)
+        }
+
+    private fun txt(
+        s: String,
+        size: Float = 14f,
+        color: Int = ink(),
+        bold: Boolean = false,
+        gravityValue: Int = Gravity.CENTER_VERTICAL
+    ) = TextView(this).apply {
+        text = s
+        textSize = size
+        setTextColor(color)
+        gravity = gravityValue
+        includeFontPadding = false
+        if (bold) setTypeface(typeface, Typeface.BOLD)
+    }
+
+    private fun col() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+    }
+
+    private fun row() = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+    }
+
+    private fun button(
+        label: String,
+        fill: Int,
+        color: Int = Color.WHITE,
+        height: Int = 52,
+        radius: Int = 14,
+        onClick: () -> Unit = {}
+    ) = TextView(this).apply {
+        text = label
+        textSize = 14f
+        setTextColor(color)
+        setTypeface(typeface, Typeface.BOLD)
+        gravity = Gravity.CENTER
+        background = shape(fill, radius, if (fill == surface2() || fill == surface()) line() else null)
+        minHeight = dp(height)
+        setPadding(dp(10), 0, dp(10), 0)
+        setOnClickListener { onClick() }
+    }
+
+    private fun iconButton(textIcon: String, content: String, onClick: () -> Unit) = TextView(this).apply {
+        text = textIcon
+        textSize = 24f
+        setTextColor(Color.WHITE)
+        gravity = Gravity.CENTER
+        contentDescription = content
+        setOnClickListener { onClick() }
+    }
+
+    private fun enterImmersiveMode() {
+        try {
+            if (Build.VERSION.SDK_INT >= 28) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        } catch (_: Throwable) {
+            try {
+                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            } catch (_: Throwable) { }
+        }
+    }
+
+    private fun showStartupFallback(t: Throwable) {
+        try {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutDirection = View.LAYOUT_DIRECTION_RTL
+                setPadding(dp(24), dp(24), dp(24), dp(24))
+                setBackgroundColor(0xFFF4F6F8.toInt())
+            }
+            box.addView(txt("تعذر فتح الواجهة", 22f, 0xFFB71C1C.toInt(), true, Gravity.CENTER))
+            box.addView(txt("أعد تشغيل التطبيق. إذا تكررت المشكلة أرسل هذه الرسالة:\n${t.javaClass.simpleName}: ${t.message ?: "خطأ غير معروف"}", 14f, 0xFF263238.toInt(), false, Gravity.CENTER).apply {
+                setPadding(0, dp(18), 0, 0)
+            })
+            setContentView(box)
+        } catch (_: Throwable) { }
+    }
+
+    private fun applyInsets(v: View) {
+        try {
+            v.setOnApplyWindowInsetsListener { view, insets ->
+                try {
+                    var l = 0; var t = 0; var r = 0; var b = 0
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        val x = insets.getInsets(WindowInsets.Type.displayCutout())
+                        l = x.left; t = x.top; r = x.right; b = x.bottom
+                    } else if (Build.VERSION.SDK_INT >= 28) {
+                        val cutout = insets.displayCutout
+                        if (cutout != null) {
+                            l = 
