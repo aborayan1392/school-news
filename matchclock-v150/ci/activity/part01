@@ -1,0 +1,191 @@
+cutout.safeInsetLeft
+                            t = cutout.safeInsetTop
+                            r = cutout.safeInsetRight
+                            b = cutout.safeInsetBottom
+                        }
+                    }
+                    view.setPadding(l, t, r, b)
+                } catch (_: Throwable) { }
+                insets
+            }
+            v.requestApplyInsets()
+        } catch (_: Throwable) { }
+    }
+
+    private fun buildShell() {
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+
+        root = col().apply {
+            setBackgroundColor(bg())
+        }
+
+        host = FrameLayout(this)
+        root.addView(host, LinearLayout.LayoutParams(-1, 0, 1f))
+        if (!(currentScreen == "match" && isLandscape)) {
+            root.addView(buildBottomNav(), LinearLayout.LayoutParams(-1, dp(if (isTablet) 72 else 66)))
+        }
+        setContentView(root)
+        applyInsets(root)
+        root.post { enterImmersiveMode() }
+        renderScreen()
+    }
+
+    private fun buildBottomNav(): View {
+        val nav = row().apply {
+            setBackgroundColor(navy)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+        }
+        val items = listOf(
+            Triple("المباريات", "⚽", "matches"),
+            Triple("البطولات", "🏆", "tournaments"),
+            Triple("السجل", "▤", "log"),
+            Triple("الإعدادات", "⚙", "settings")
+        )
+        items.forEach { (label, icon, screen) ->
+            val active = when {
+                currentScreen == "match" && screen == "matches" -> true
+                else -> currentScreen == screen
+            }
+            val box = col().apply {
+                gravity = Gravity.CENTER
+                background = if (active) shape(0xFF12304A.toInt(), 14) else null
+                setPadding(dp(3), dp(4), dp(3), dp(4))
+                addView(txt(icon, 19f, if (active) green else Color.WHITE, true, Gravity.CENTER), LinearLayout.LayoutParams(-1, 0, 1f))
+                addView(txt(label, 10.5f, if (active) green else 0xFFD5DCE2.toInt(), active, Gravity.CENTER), LinearLayout.LayoutParams(-1, 0, 0.9f))
+                setOnClickListener {
+                    currentScreen = screen
+                    currentDashboardId = -1L
+                    buildShell()
+                }
+            }
+            nav.addView(box, LinearLayout.LayoutParams(0, -1, 1f).apply {
+                marginStart = dp(2); marginEnd = dp(2)
+            })
+        }
+        return nav
+    }
+
+    private fun renderScreen() {
+        liveTimer = null
+        liveAdded = null
+        liveScore = null
+        liveStatus = null
+        host.removeAllViews()
+        val view = when (currentScreen) {
+            "match" -> {
+                val selected = findSelected()
+                when {
+                    selected == null -> buildMatchesScreen()
+                    isLandscape -> buildLandscapeDashboardScreen(selected)
+                    refereeMode == "quick" -> buildQuickDashboardScreen(selected)
+                    else -> buildDashboardScreen(selected)
+                }
+            }
+            "log" -> buildLogScreen()
+            "tournaments" -> buildTournamentsScreen()
+            "settings" -> buildSettingsScreen()
+            else -> buildMatchesScreen()
+        }
+        host.addView(view, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun header(title: String, subtitle: String? = null, back: Boolean = false, rightAction: (() -> Unit)? = null): View {
+        val h = row().apply {
+            setBackgroundColor(navy)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        if (back) {
+            h.addView(iconButton("‹", "رجوع") {
+                currentScreen = "matches"
+                currentDashboardId = -1L
+                buildShell()
+            }, LinearLayout.LayoutParams(dp(48), -1))
+        } else {
+            h.addView(iconButton("☰", "القائمة") { showAppMenu() }, LinearLayout.LayoutParams(dp(48), -1))
+        }
+
+        val titleBox = col().apply {
+            gravity = Gravity.CENTER
+            addView(txt(title, if (isTablet) 21f else 19f, Color.WHITE, true, Gravity.CENTER))
+            if (!subtitle.isNullOrBlank()) addView(txt(subtitle, 10.5f, 0xFFBFCAD4.toInt(), false, Gravity.CENTER))
+        }
+        h.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
+
+        h.addView(iconButton(if (rightAction == null) "⋮" else "＋", "إجراء") {
+            rightAction?.invoke() ?: showAppMenu()
+        }, LinearLayout.LayoutParams(dp(48), -1))
+        return h
+    }
+
+    private fun buildMatchesScreen(): View {
+        val page = col()
+        page.addView(header("المباريات", "إدارة ومتابعة المباريات", rightAction = { showAddMatchDialog() }),
+            LinearLayout.LayoutParams(-1, dp(if (isTablet) 76 else 68)))
+
+        val tabs = row().apply {
+            setPadding(dp(14), dp(10), dp(14), dp(8))
+            listOf("all" to "الكل", "live" to "مباشرة", "done" to "منتهية").forEach { (key, label) ->
+                val selected = matchFilter == key
+                addView(button(label, if (selected) navy2 else surface(), if (selected) Color.WHITE else ink(), 42, 12) {
+                    matchFilter = key
+                    renderScreen()
+                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                    marginStart = dp(4); marginEnd = dp(4)
+                })
+            }
+        }
+        page.addView(tabs)
+
+        val filtered = states.filter {
+            when (matchFilter) {
+                "live" -> it.running && !it.archived
+                "done" -> it.archived
+                else -> true
+            }
+        }.sortedByDescending { it.id }
+
+        if (filtered.isEmpty()) {
+            val empty = col().apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(24), dp(24), dp(24), dp(24))
+                addView(txt("⚽", 58f, green, true, Gravity.CENTER))
+                addView(txt("لا توجد مباريات", 20f, ink(), true, Gravity.CENTER).apply { setPadding(0, dp(14), 0, dp(6)) })
+                addView(txt("اضغط + لإضافة أول مباراة وبدء التحكيم.", 13f, muted(), false, Gravity.CENTER))
+                addView(button("＋ إضافة مباراة جديدة", green, Color.WHITE, 54) { showAddMatchDialog() },
+                    LinearLayout.LayoutParams(if (isTablet) dp(330) else -1, dp(54)).apply { topMargin = dp(22) })
+            }
+            page.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
+            return page
+        }
+
+        if (isTablet) {
+            val split = row().apply { setPadding(dp(12), 0, dp(12), dp(12)) }
+            val listScroll = ScrollView(this)
+            val listBox = col()
+            filtered.forEach { listBox.addView(matchCard(it), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) }) }
+            listScroll.addView(listBox)
+            split.addView(listScroll, LinearLayout.LayoutParams(0, -1, 0.43f).apply { marginEnd = dp(10) })
+            val preview = filtered.firstOrNull { it.id == selectedId } ?: filtered.first()
+            selectedId = preview.id
+            split.addView(buildDashboardContent(preview, tabletPreview = true), LinearLayout.LayoutParams(0, -1, 0.57f))
+            page.addView(split, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            val scroll = ScrollView(this).apply {
+                isFillViewport = true
+                setPadding(dp(12), 0, dp(12), dp(12))
+            }
+            val box = col()
+            filtered.forEach { box.addView(matchCard(it), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) }) }
+            scroll.addView(box)
+            page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        return page
+    }
+
+    private fun matchCard(s: MatchState): View {
+        val colors = teamColors(s)
+        val card = col().apply {
+            background = shape(surface(), 16, line())
+            elevation = dp(2).toFloat()
+          
