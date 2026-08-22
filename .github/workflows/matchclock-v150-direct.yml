@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - build/matchclock-v150-direct-20260822
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
