@@ -1,0 +1,148 @@
+nearLayout.LayoutParams(-1, 0, 1f))
+        renderDialogLog("all")
+        d.setContentView(page)
+        d.show()
+    }
+
+    private fun buildLogScreen(): View {
+        val page = col()
+        page.addView(header("السجل", "جميع أحداث المباريات"), LinearLayout.LayoutParams(-1, dp(if (isTablet) 76 else 68)))
+        val tabs = row().apply { setPadding(dp(12), dp(10), dp(12), dp(8)) }
+        listOf("all" to "الكل", "goal" to "الأهداف", "cards" to "البطاقات").forEach { (k, label) ->
+            val selected = logFilter == k
+            tabs.addView(button(label, if (selected) green else surface(), if (selected) Color.WHITE else ink(), 40, 99) {
+                logFilter = k
+                renderScreen()
+            }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+        }
+        page.addView(tabs)
+
+        val all = mutableListOf<Pair<MatchState, MatchEvent>>()
+        states.forEach { s ->
+            s.events.forEach { e ->
+                val ok = when (logFilter) {
+                    "goal" -> e.kind == "goal"
+                    "cards" -> e.kind == "yellow" || e.kind == "red"
+                    else -> true
+                }
+                if (ok) all.add(s to e)
+            }
+        }
+        all.sortByDescending { it.second.timeMs }
+
+        val scroll = ScrollView(this)
+        val box = col().apply { setPadding(dp(12), 0, dp(12), dp(12)) }
+        if (all.isEmpty()) {
+            box.addView(txt("لا توجد أحداث مسجلة.", 14f, muted(), false, Gravity.CENTER).apply { setPadding(0, dp(40), 0, dp(40)) })
+        } else all.forEach { (s, e) ->
+            val card = col().apply {
+                background = shape(surface(), 13, line())
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                addView(txt(s.title, 11f, muted(), true))
+                addView(eventRow(s, e))
+                setOnClickListener { selectedId = s.id; currentScreen = "match"; buildShell() }
+            }
+            box.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+        scroll.addView(box)
+        page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        return page
+    }
+
+    private fun buildTournamentsScreen(): View {
+        val page = col()
+        page.addView(header("البطولات", "نظرة سريعة على مبارياتك"), LinearLayout.LayoutParams(-1, dp(if (isTablet) 76 else 68)))
+        val scroll = ScrollView(this)
+        val box = col().apply { setPadding(dp(12), dp(12), dp(12), dp(12)) }
+
+        val statRow = row()
+        statRow.addView(statCard("المباريات", states.size.toString(), green), LinearLayout.LayoutParams(0, dp(92), 1f).apply { marginEnd = dp(4) })
+        statRow.addView(statCard("المباشرة", states.count { it.running }.toString(), red), LinearLayout.LayoutParams(0, dp(92), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+        statRow.addView(statCard("المنتهية", states.count { it.archived }.toString(), blue), LinearLayout.LayoutParams(0, dp(92), 1f).apply { marginStart = dp(4) })
+        box.addView(statRow)
+
+        val groups = states.groupBy { it.title.ifBlank { "مباريات بدون بطولة" } }
+        box.addView(txt("البطولات والمجموعات", 16f, ink(), true).apply { setPadding(dp(4), dp(18), 0, dp(8)) })
+        if (groups.isEmpty()) {
+            box.addView(txt("أضف مباريات لتظهر البطولات هنا.", 13f, muted(), false, Gravity.CENTER).apply { setPadding(0, dp(30), 0, dp(30)) })
+        } else groups.forEach { (name, matches) ->
+            val card = row().apply {
+                background = shape(surface(), 14, line())
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                addView(txt("🏆", 27f, amber, true, Gravity.CENTER), LinearLayout.LayoutParams(dp(46), dp(50)))
+                val texts = col().apply {
+                    addView(txt(name, 14f, ink(), true))
+                    addView(txt("${matches.size} مباراة • ${matches.count { it.archived }} منتهية", 11f, muted()))
+                }
+                addView(texts, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            box.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+        scroll.addView(box)
+        page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        return page
+    }
+
+    private fun statCard(label: String, value: String, color: Int): View = col().apply {
+        gravity = Gravity.CENTER
+        background = shape(surface(), 14, line())
+        addView(txt(value, 28f, color, true, Gravity.CENTER))
+        addView(txt(label, 11f, muted(), true, Gravity.CENTER))
+    }
+
+    private fun buildSettingsScreen(): View {
+        val page = col()
+        page.addView(header("الإعدادات", "تخصيص MatchClock V1.5"), LinearLayout.LayoutParams(-1, dp(if (isTablet) 76 else 68)))
+        val scroll = ScrollView(this)
+        val box = col().apply { setPadding(dp(12), dp(12), dp(12), dp(18)) }
+
+        val half = prefs.getInt("default_half", 45)
+        box.addView(settingRow("◷", "مدة الشوط", "$half دقيقة") {
+            val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(half.toString()) }
+            AlertDialog.Builder(this).setTitle("مدة الشوط الافتراضية").setView(input)
+                .setNegativeButton("إلغاء", null).setPositiveButton("حفظ") { _, _ ->
+                    prefs.edit().putInt("default_half", input.text.toString().toIntOrNull()?.coerceIn(1, 180) ?: 45).apply()
+                    renderScreen()
+                }.show()
+        })
+        box.addView(settingRow("◴", "وقت بدل الضائع الافتراضي", "${prefs.getInt("default_extra", 3)} دقائق") {
+            val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(prefs.getInt("default_extra", 3).toString()) }
+            AlertDialog.Builder(this).setTitle("وقت بدل الضائع").setView(input)
+                .setNegativeButton("إلغاء", null).setPositiveButton("حفظ") { _, _ ->
+                    prefs.edit().putInt("default_extra", input.text.toString().toIntOrNull()?.coerceIn(0, 30) ?: 3).apply()
+                    renderScreen()
+                }.show()
+        })
+        box.addView(toggleRow("🔊", "أصوات التطبيق", sounds) {
+            sounds = it; prefs.edit().putBoolean("sounds", it).apply()
+        })
+        box.addView(toggleRow("☼", "الوضع الداكن", dark) {
+            dark = it; prefs.edit().putBoolean("dark", it).apply(); buildShell()
+        })
+        box.addView(settingRow("⚡", "واجهة الحكم", if (refereeMode == "quick") "الوضع السريع" else "الوضع الكامل") {
+            val labels = arrayOf("الوضع الكامل", "الوضع السريع")
+            val values = arrayOf("full", "quick")
+            AlertDialog.Builder(this).setTitle("واجهة الحكم")
+                .setSingleChoiceItems(labels, if (refereeMode == "quick") 1 else 0) { dialog, which ->
+                    prefs.edit().putString("referee_mode", values[which]).apply()
+                    dialog.dismiss(); buildShell()
+                }.show()
+        })
+        box.addView(settingRow("◈", "ألوان الفرق الافتراضية", "أخضر / أزرق") {
+            Toast.makeText(this, "يمكن تخصيص لون كل فريق من إعدادات المباراة", Toast.LENGTH_LONG).show()
+        })
+        box.addView(settingRow("⇩", "استيراد نسخة احتياطية", "JSON") { importBackup() })
+        box.addView(settingRow("⇧", "تصدير نسخة احتياطية", "JSON") { exportBackup() })
+        box.addView(settingRow("ⓘ", "حول التطبيق", "MatchClock V1.5.0") {
+            AlertDialog.Builder(this).setTitle("MatchClock V1.5.0")
+                .setMessage("لوحة تحكيم مباريات محسّنة للجوال والتابلت.\n\nالواجهة مصممة للتركيز على الوقت والنتيجة والإجراءات السريعة.\n\nبرمجة : ابوريان الغامدي")
+                .setPositiveButton("حسنًا", null).show()
+        })
+
+        scroll.addView(box)
+        page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        return page
+    }
+
+    private fun settingRow(icon: String, title: String, value: String, onClick: () -> Unit): View = row().apply {
+        

@@ -1,0 +1,155 @@
+لأول", homeColor, Color.WHITE, 44)
+        val ac = button("لون الثاني", awayColor, Color.WHITE, 44)
+        hc.setOnClickListener { homeColor = nextColor(homeColor); hc.background = shape(homeColor, 12) }
+        ac.setOnClickListener { awayColor = nextColor(awayColor); ac.background = shape(awayColor, 12) }
+        colorRow.addView(hc, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
+        colorRow.addView(ac, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(4) })
+        box.addView(colorRow)
+
+        val actions = row()
+        actions.addView(button("إلغاء", surface2(), ink(), 48) { d.dismiss() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
+        actions.addView(button("حفظ المباراة", green, Color.WHITE, 48) {
+            val h = home.text.toString().trim()
+            val a = away.text.toString().trim()
+            if (h.isBlank() || a.isBlank()) {
+                Toast.makeText(this, "اكتب اسمي الفريقين", Toast.LENGTH_SHORT).show()
+                return@button
+            }
+            val s = MatchState(
+                id = System.currentTimeMillis(),
+                type = MatchState.TYPE_MATCH,
+                title = title.text.toString().trim().ifBlank { "مباراة جديدة" },
+                home = h,
+                away = a,
+                halfMinutes = prefs.getInt("default_half", 45),
+                notes = venue.text.toString().trim()
+            )
+            states.add(s)
+            selectedId = s.id
+            prefs.edit().putInt("homeColor:${s.id}", homeColor).putInt("awayColor:${s.id}", awayColor).apply()
+            save()
+            d.dismiss()
+            currentScreen = "match"
+            buildShell()
+        }, LinearLayout.LayoutParams(0, dp(48), 1.3f).apply { marginStart = dp(4) })
+        box.addView(actions, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+
+        d.setContentView(box)
+        d.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        d.show()
+        d.window?.setLayout((resources.displayMetrics.widthPixels * if (isTablet) 0.55 else 0.92).toInt(), WindowManager.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun showMatchMenu(s: MatchState) {
+        val options = arrayOf("شاشة الحكم الكاملة", "السجل الكامل", "إعدادات المباراة", "بدء الشوط الثاني", if (s.archived) "إلغاء إنهاء المباراة" else "إنهاء المباراة", "مشاركة التقرير", "حذف المباراة")
+        AlertDialog.Builder(this).setTitle("خيارات المباراة").setItems(options) { _, which ->
+            when (which) {
+                0 -> showRefereeFullscreen(s)
+                1 -> showLogDialog(s)
+                2 -> showMatchSettings(s)
+                3 -> {
+                    s.freeze()
+                    s.elapsedMs = s.halfMinutes * 60_000L
+                    s.lostMs = 0L
+                    s.pausedAt = 0L
+                    prefs.edit().putBoolean("secondHalf:${s.id}", true).apply()
+                    s.resume()
+                    save(); renderScreen()
+                }
+                4 -> { s.freeze(); s.archived = !s.archived; save(); renderScreen() }
+                5 -> shareReport(s)
+                6 -> confirmDelete(s)
+            }
+        }.show()
+    }
+
+    private fun showMatchSettings(s: MatchState) {
+        val box = col().apply { setPadding(dp(18), dp(8), dp(18), dp(4)) }
+        val half = EditText(this).apply {
+            hint = "مدة الشوط بالدقائق"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(s.halfMinutes.toString())
+        }
+        val venue = EditText(this).apply {
+            hint = "ملعب المباراة"
+            setText(s.notes)
+        }
+        box.addView(txt("مدة الشوط", 12f, muted(), true))
+        box.addView(half)
+        box.addView(txt("الملعب / ملاحظة قصيرة", 12f, muted(), true).apply { setPadding(0, dp(8), 0, 0) })
+        box.addView(venue)
+
+        val colorRow = row().apply { setPadding(0, dp(10), 0, 0) }
+        var hc = teamColors(s).first
+        var ac = teamColors(s).second
+        val homeC = button("لون ${s.home}", hc, Color.WHITE, 44)
+        val awayC = button("لون ${s.away}", ac, Color.WHITE, 44)
+        homeC.setOnClickListener { hc = nextColor(hc); homeC.background = shape(hc, 12) }
+        awayC.setOnClickListener { ac = nextColor(ac); awayC.background = shape(ac, 12) }
+        colorRow.addView(homeC, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
+        colorRow.addView(awayC, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(4) })
+        box.addView(colorRow)
+
+        AlertDialog.Builder(this)
+            .setTitle("إعدادات المباراة")
+            .setView(box)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حفظ") { _, _ ->
+                s.halfMinutes = half.text.toString().toIntOrNull()?.coerceIn(1, 180) ?: s.halfMinutes
+                s.notes = venue.text.toString().trim()
+                prefs.edit().putInt("homeColor:${s.id}", hc).putInt("awayColor:${s.id}", ac).apply()
+                save(); renderScreen()
+            }.show()
+    }
+
+    private fun confirmDelete(s: MatchState) {
+        AlertDialog.Builder(this)
+            .setTitle("حذف المباراة")
+            .setMessage("هل تريد حذف ${s.title} نهائيًا؟")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حذف") { _, _ ->
+                states.removeAll { it.id == s.id }
+                if (selectedId == s.id) selectedId = states.firstOrNull()?.id ?: -1L
+                save()
+                currentScreen = "matches"
+                buildShell()
+            }.show()
+    }
+
+    private fun showLogDialog(s: MatchState) {
+        val d = Dialog(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen)
+        val page = col().apply { setBackgroundColor(bg()) }
+        val h = row().apply {
+            setBackgroundColor(surface())
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            addView(txt("‹", 30f, ink(), true, Gravity.CENTER).apply { setOnClickListener { d.dismiss() } }, LinearLayout.LayoutParams(dp(48), dp(52)))
+            addView(txt("السجل الكامل", 19f, ink(), true, Gravity.CENTER), LinearLayout.LayoutParams(0, dp(52), 1f))
+            addView(txt("▤", 22f, ink(), true, Gravity.CENTER), LinearLayout.LayoutParams(dp(48), dp(52)))
+        }
+        page.addView(h, LinearLayout.LayoutParams(-1, dp(68)))
+        val tabs = row().apply { setPadding(dp(12), dp(8), dp(12), dp(8)) }
+        val filterHost = FrameLayout(this)
+        fun renderDialogLog(filter: String) {
+            filterHost.removeAllViews()
+            val scroll = ScrollView(this)
+            val box = col().apply { setPadding(dp(12), dp(6), dp(12), dp(12)) }
+            val events = s.events.asReversed().filter {
+                when (filter) {
+                    "goal" -> it.kind == "goal"
+                    "cards" -> it.kind == "yellow" || it.kind == "red"
+                    "other" -> it.kind != "goal" && it.kind != "yellow" && it.kind != "red"
+                    else -> true
+                }
+            }
+            if (events.isEmpty()) box.addView(txt("لا توجد أحداث ضمن هذا التصنيف.", 13f, muted(), false, Gravity.CENTER).apply { setPadding(0, dp(30), 0, dp(30)) })
+            else events.forEach { box.addView(eventRow(s, it)); box.addView(View(this).apply { setBackgroundColor(line()) }, LinearLayout.LayoutParams(-1, dp(1))) }
+            scroll.addView(box)
+            filterHost.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        }
+        listOf("all" to "الكل", "goal" to "أهداف", "cards" to "إنذارات", "other" to "أخرى").forEach { (k, label) ->
+            tabs.addView(button(label, if (k == "all") green else surface2(), if (k == "all") Color.WHITE else ink(), 38, 99) {
+                renderDialogLog(k)
+            }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
+        }
+        page.addView(tabs)
+        page.addView(filterHost, Li

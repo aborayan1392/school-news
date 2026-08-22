@@ -1,0 +1,111 @@
+lock(ms: Long): String {
+        val total = (ms.coerceAtLeast(0L) / 1000L)
+        val m = total / 60
+        val s = total % 60
+        return "%02d:%02d".format(m, s)
+    }
+
+    private fun clockAdded(ms: Long): String {
+        val total = (ms.coerceAtLeast(0L) / 1000L)
+        val m = total / 60
+        val s = total % 60
+        return "%02d:%02d".format(m, s)
+    }
+
+    private fun report(s: MatchState) = buildString {
+        appendLine(s.title)
+        appendLine("${s.home} ${s.scoreHome} - ${s.scoreAway} ${s.away}")
+        appendLine("الوقت: ${clock(s.currentElapsed())}")
+        appendLine("الوقت بدل الضائع: ${clockAdded(s.currentLost())}")
+        appendLine("الملعب/الملاحظة: ${s.notes}")
+        appendLine()
+        s.events.forEach {
+            appendLine("${clock(it.timeMs)} | ${eventName(it.kind)} | ${teamName(s, it.team)} | ${it.player} ${it.number}")
+        }
+    }
+
+    private fun shareReport(s: MatchState) {
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, s.title)
+            putExtra(Intent.EXTRA_TEXT, report(s))
+        }, "مشاركة تقرير المباراة"))
+    }
+
+    private fun backup() = JSONObject().apply {
+        put("app", "MatchClock")
+        put("version", "1.4.2")
+        put("items", JSONArray().apply { states.forEach { put(it.toJson()) } })
+    }.toString(2)
+
+    private fun exportBackup() {
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, "matchclock-v1.4-backup.json")
+        }, 501)
+    }
+
+    private fun importBackup() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+        }, 502)
+    }
+
+    @Deprecated("Compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            when (requestCode) {
+                501 -> {
+                    contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(backup()) }
+                    Toast.makeText(this, "تم تصدير النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+                }
+                502 -> {
+                    val raw = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: return
+                    val arr = JSONObject(raw).optJSONArray("items") ?: return
+                    states.clear()
+                    for (i in 0 until arr.length()) states.add(MatchState.fromJson(arr.getJSONObject(i)))
+                    selectedId = states.firstOrNull()?.id ?: -1L
+                    save()
+                    currentScreen = "matches"
+                    buildShell()
+                    Toast.makeText(this, "تم استيراد البيانات", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (_: Exception) {
+            Toast.makeText(this, "تعذر قراءة الملف", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun save() {
+        try {
+            val obj = JSONObject().apply {
+                put("selectedId", selectedId)
+                put("items", JSONArray().apply { states.forEach { put(it.toJson()) } })
+            }
+            prefs.edit()
+                .putString("json", obj.toString())
+                .putBoolean("dark", dark)
+                .putBoolean("sounds", sounds)
+                .apply()
+        } catch (_: Exception) { }
+    }
+
+    private fun load() {
+        dark = prefs.getBoolean("dark", false)
+        sounds = prefs.getBoolean("sounds", true)
+        val raw = prefs.getString("json", null) ?: return
+        try {
+            val obj = JSONObject(raw)
+            selectedId = obj.optLong("selectedId", -1L)
+            val arr = obj.optJSONArray("items") ?: return
+            for (i in 0 until arr.length()) states.add(MatchState.fromJson(arr.getJSONObject(i)))
+        } catch (_: Exception) {
+            states.clear()
+        }
+    }
+}

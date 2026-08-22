@@ -1,0 +1,165 @@
+background = shape(surface(), 13, line())
+        setPadding(dp(12), dp(12), dp(12), dp(12))
+        addView(txt(icon, 22f, blue, true, Gravity.CENTER), LinearLayout.LayoutParams(dp(42), dp(46)))
+        val t = col().apply {
+            addView(txt(title, 13f, ink(), true))
+            addView(txt(value, 11f, muted()))
+        }
+        addView(t, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(txt("‹", 24f, muted(), true, Gravity.CENTER), LinearLayout.LayoutParams(dp(34), dp(46)))
+        setOnClickListener { onClick() }
+        val lp = LinearLayout.LayoutParams(-1, -2)
+        lp.bottomMargin = dp(8)
+        layoutParams = lp
+    }
+
+    private fun toggleRow(icon: String, title: String, checked: Boolean, onChanged: (Boolean) -> Unit): View {
+        val r = row().apply {
+            background = shape(surface(), 13, line())
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+        }
+        r.addView(txt(icon, 22f, blue, true, Gravity.CENTER), LinearLayout.LayoutParams(dp(42), dp(46)))
+        r.addView(txt(title, 13f, ink(), true), LinearLayout.LayoutParams(0, -2, 1f))
+        val sw = Switch(this).apply {
+            isChecked = checked
+            setOnCheckedChangeListener { _, isChecked -> onChanged(isChecked) }
+        }
+        r.addView(sw)
+        r.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
+        return r
+    }
+
+    private fun showRefereeFullscreen(s: MatchState) {
+        val d = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val box = col().apply {
+            setBackgroundColor(0xFF050B12.toInt())
+            setPadding(dp(16), dp(14), dp(16), dp(16))
+        }
+
+        val top = row()
+        top.addView(txt("شاشة الحكم", 16f, Color.WHITE, true), LinearLayout.LayoutParams(0, dp(44), 1f))
+        top.addView(button("✕", 0xFF1C2B38.toInt(), Color.WHITE, 42, 12) { d.dismiss() }, LinearLayout.LayoutParams(dp(52), dp(42)))
+        box.addView(top)
+
+        val teams = row()
+        teams.addView(teamScorePanelFullscreen(s.home, teamColors(s).first), LinearLayout.LayoutParams(0, dp(110), 1f).apply { marginEnd = dp(6) })
+        val t = txt(clock(s.currentElapsed()), if (isTablet) 70f else 52f, Color.WHITE, true, Gravity.CENTER).apply { typeface = Typeface.MONOSPACE }
+        teams.addView(t, LinearLayout.LayoutParams(0, dp(110), 1.15f))
+        teams.addView(teamScorePanelFullscreen(s.away, teamColors(s).second), LinearLayout.LayoutParams(0, dp(110), 1f).apply { marginStart = dp(6) })
+        box.addView(teams, LinearLayout.LayoutParams(-1, dp(110)).apply { topMargin = dp(8) })
+
+        val added = txt("+${clockAdded(s.currentLost())}", 20f, amber, true, Gravity.CENTER)
+        box.addView(added, LinearLayout.LayoutParams(-1, dp(36)))
+
+        val score = txt("${s.scoreHome}  -  ${s.scoreAway}", if (isTablet) 60f else 46f, Color.WHITE, true, Gravity.CENTER)
+        box.addView(score, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val controls = row()
+        val play = button(if (s.running) "Ⅱ إيقاف" else "▶ تشغيل", if (s.running) navy2 else green, Color.WHITE, 58) {
+            if (s.running) s.freeze() else s.resume()
+            save()
+        }
+        controls.addView(play, LinearLayout.LayoutParams(0, dp(58), 1f).apply { marginEnd = dp(3) })
+        controls.addView(button("↶ تراجع", blue, Color.WHITE, 58) { undoLastDecision(s) }, LinearLayout.LayoutParams(0, dp(58), 0.82f).apply { marginStart = dp(3); marginEnd = dp(3) })
+        controls.addView(button("↻ إعادة", 0xFF1C2B38.toInt(), Color.WHITE, 58) { showResetDialog(s) }, LinearLayout.LayoutParams(0, dp(58), 0.8f).apply { marginStart = dp(3); marginEnd = dp(3) })
+        controls.addView(button("◴+ ضائع", blue, Color.WHITE, 58) { showAddedTimeDialog(s) }, LinearLayout.LayoutParams(0, dp(58), 0.9f).apply { marginStart = dp(3) })
+        box.addView(controls)
+
+        val events = row()
+        events.addView(button("⚽ هدف", green, Color.WHITE, 58) { showEventDialog(s, "goal") }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { marginEnd = dp(4) })
+        events.addView(button("▣ إنذار", amber, Color.WHITE, 58) { showEventDialog(s, "yellow") }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+        events.addView(button("■ طرد", red, Color.WHITE, 58) { showEventDialog(s, "red") }, LinearLayout.LayoutParams(0, dp(58), 1f).apply { marginStart = dp(4) })
+        box.addView(events, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(10) })
+
+        val updater = object : Runnable {
+            override fun run() {
+                if (!d.isShowing) return
+                t.text = clock(s.currentElapsed())
+                added.text = "+${clockAdded(s.currentLost())}"
+                score.text = "${s.scoreHome}  -  ${s.scoreAway}"
+                play.text = if (s.running) "Ⅱ إيقاف" else "▶ تشغيل"
+                play.background = shape(if (s.running) navy2 else green, 14)
+                handler.postDelayed(this, 200L)
+            }
+        }
+        d.setContentView(box)
+        d.setOnShowListener {
+            @Suppress("DEPRECATION")
+            d.window?.decorView?.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            handler.post(updater)
+        }
+        d.setOnDismissListener { handler.removeCallbacks(updater) }
+        d.show()
+    }
+
+    private fun teamScorePanelFullscreen(name: String, color: Int): View = col().apply {
+        gravity = Gravity.CENTER
+        background = shape(color, 14)
+        addView(txt(name, 15f, Color.WHITE, true, Gravity.CENTER))
+    }
+
+    private fun showAppMenu() {
+        val options = arrayOf("إضافة مباراة", "المباريات", "السجل", "الإعدادات")
+        AlertDialog.Builder(this).setTitle("MatchClock").setItems(options) { _, which ->
+            when (which) {
+                0 -> showAddMatchDialog()
+                1 -> { currentScreen = "matches"; buildShell() }
+                2 -> { currentScreen = "log"; buildShell() }
+                3 -> { currentScreen = "settings"; buildShell() }
+            }
+        }.show()
+    }
+
+    private fun updateLiveViews() {
+        val id = currentDashboardId
+        if (id <= 0L) return
+        val s = states.firstOrNull { it.id == id } ?: return
+        if (s.running && s.autoPause && !prefs.getBoolean("secondHalf:${s.id}", false)) {
+            val firstCap = s.halfMinutes * 60_000L
+            if (s.currentElapsed() >= firstCap) {
+                s.freeze()
+                save()
+            }
+        }
+        liveTimer?.text = clock(s.currentElapsed())
+        liveAdded?.text = "+${clockAdded(s.currentLost())} الوقت بدل الضائع"
+        liveScore?.text = "${s.scoreHome} - ${s.scoreAway}"
+        liveStatus?.text = if (s.running) "مباشر" else if (s.archived) "منتهية" else "متوقف"
+    }
+
+    private fun periodLabel(s: MatchState): String {
+        val cap = s.halfMinutes * 60_000L
+        return if (s.currentElapsed() >= cap) "الشوط الثاني" else "الشوط الأول"
+    }
+
+    private fun eventName(kind: String) = when (kind) {
+        "goal" -> "هدف ⚽"
+        "yellow" -> "إنذار ▣"
+        "red" -> "طرد ■"
+        "extra" -> "وقت ضائع ◴"
+        else -> kind
+    }
+
+    private fun eventColor(kind: String) = when (kind) {
+        "goal" -> green
+        "yellow" -> amber
+        "red" -> red
+        "extra" -> blue
+        else -> ink()
+    }
+
+    private fun teamName(s: MatchState, team: String) = if (team == "home") s.home else s.away
+
+    private fun teamColors(s: MatchState): Pair<Int, Int> =
+        prefs.getInt("homeColor:${s.id}", green) to prefs.getInt("awayColor:${s.id}", blue)
+
+    private fun nextColor(current: Int): Int {
+        val i = palette.indexOf(current)
+        return palette[(if (i < 0) 0 else i + 1) % palette.size]
+    }
+
+    private fun findSelected(): MatchState? =
+        states.firstOrNull { it.id == selectedId } ?: states.firstOrNull()
+
+    private fun c
