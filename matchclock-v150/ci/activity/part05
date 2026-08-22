@@ -1,0 +1,165 @@
+(surface(), 20)
+        }
+        val icon = when (kind) { "goal" -> "⚽"; "yellow" -> "▣"; else -> "■" }
+        box.addView(txt(icon, 42f, eventColor(kind), true, Gravity.CENTER))
+        box.addView(txt(
+            when (kind) { "goal" -> "تسجيل هدف"; "yellow" -> "تسجيل إنذار"; else -> "تسجيل طرد" },
+            21f, ink(), true, Gravity.CENTER
+        ).apply { setPadding(0, dp(4), 0, dp(12)) })
+
+        var team = "home"
+        val teamRow = row()
+        val homeBtn = button(s.home, teamColors(s).first, Color.WHITE, 46)
+        val awayBtn = button(s.away, surface2(), ink(), 46)
+        fun refreshTeamButtons() {
+            homeBtn.background = shape(if (team == "home") teamColors(s).first else surface2(), 12, if (team == "home") null else line())
+            homeBtn.setTextColor(if (team == "home") Color.WHITE else ink())
+            awayBtn.background = shape(if (team == "away") teamColors(s).second else surface2(), 12, if (team == "away") null else line())
+            awayBtn.setTextColor(if (team == "away") Color.WHITE else ink())
+        }
+        homeBtn.setOnClickListener { team = "home"; refreshTeamButtons() }
+        awayBtn.setOnClickListener { team = "away"; refreshTeamButtons() }
+        teamRow.addView(homeBtn, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(4) })
+        teamRow.addView(awayBtn, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(4) })
+        box.addView(teamRow)
+        refreshTeamButtons()
+
+        val player = EditText(this).apply {
+            hint = "اسم اللاعب"
+            setTextColor(ink()); setHintTextColor(muted()); textSize = 14f
+            background = shape(surface2(), 11, line())
+            setPadding(dp(12), 0, dp(12), 0)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        }
+        val number = EditText(this).apply {
+            hint = "رقم اللاعب"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setTextColor(ink()); setHintTextColor(muted()); textSize = 14f
+            background = shape(surface2(), 11, line())
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        val note = EditText(this).apply {
+            hint = "ملاحظات (اختياري)"
+            setTextColor(ink()); setHintTextColor(muted()); textSize = 14f
+            background = shape(surface2(), 11, line())
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        box.addView(player, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+        box.addView(number, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        box.addView(note, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+
+        val actions = row()
+        actions.addView(button("إلغاء", surface2(), ink(), 48) { d.dismiss() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
+        actions.addView(button("حفظ الحدث", green, Color.WHITE, 48) {
+            if (kind == "goal") {
+                if (team == "home") s.scoreHome++ else s.scoreAway++
+            }
+            val p = player.text.toString().trim().let {
+                if (note.text.toString().isBlank()) it else if (it.isBlank()) note.text.toString().trim() else "$it – ${note.text.toString().trim()}"
+            }
+            val event = MatchEvent(s.currentElapsed(), kind, team, p, number.text.toString().trim())
+            s.events.add(event)
+            save()
+            d.dismiss()
+            renderScreen()
+            val label = when (kind) { "goal" -> "تم تسجيل هدف"; "yellow" -> "تم تسجيل إنذار"; else -> "تم تسجيل طرد" }
+            showUndoBanner(s, event, "$label • ${teamName(s, team)}")
+        }, LinearLayout.LayoutParams(0, dp(48), 1.3f).apply { marginStart = dp(4) })
+        box.addView(actions, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+
+        d.setContentView(box)
+        d.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            setLayout((resources.displayMetrics.widthPixels * if (isTablet) 0.55 else 0.92).toInt(), WindowManager.LayoutParams.WRAP_CONTENT)
+        }
+        d.show()
+        d.window?.setLayout((resources.displayMetrics.widthPixels * if (isTablet) 0.55 else 0.92).toInt(), WindowManager.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun undoLastDecision(s: MatchState) {
+        val index = s.events.indexOfLast { it.kind == "goal" || it.kind == "yellow" || it.kind == "red" }
+        if (index < 0) {
+            Toast.makeText(this, "لا يوجد هدف أو بطاقة للتراجع عنها", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val event = s.events[index]
+        removeEventAndRollback(s, event)
+        save()
+        renderScreen()
+        val label = when (event.kind) {
+            "goal" -> "الهدف"
+            "yellow" -> "الإنذار"
+            else -> "الطرد"
+        }
+        Toast.makeText(this, "تم التراجع عن $label", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showAddedTimeDialog(s: MatchState) {
+        val input = EditText(this).apply {
+            hint = "الدقائق"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText("3")
+            selectAll()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("إضافة وقت بدل ضائع")
+            .setMessage("أدخل عدد الدقائق التي تريد إضافتها.")
+            .setView(input)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("إضافة") { _, _ ->
+                val minutes = input.text.toString().toIntOrNull()?.coerceIn(0, 99) ?: 0
+                if (minutes > 0) {
+                    s.lostMs += minutes * 60_000L
+                    val event = MatchEvent(s.currentElapsed(), "extra", "home", "+$minutes دقيقة", "")
+                    s.events.add(event)
+                    save(); renderScreen()
+                    showUndoBanner(s, event, "تمت إضافة $minutes دقائق بدل ضائع")
+                }
+            }.show()
+    }
+
+    private fun showResetDialog(s: MatchState) {
+        AlertDialog.Builder(this)
+            .setTitle("إعادة ضبط المباراة")
+            .setMessage("سيتم تصفير الوقت والنتيجة والسجل لهذه المباراة.")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("إعادة ضبط") { _, _ ->
+                s.freeze()
+                s.elapsedMs = 0L; s.lostMs = 0L; s.pausedAt = 0L
+                s.scoreHome = 0; s.scoreAway = 0; s.events.clear()
+                s.archived = false
+                prefs.edit().putBoolean("secondHalf:${s.id}", false).apply()
+                save(); renderScreen()
+            }.show()
+    }
+
+    private fun showAddMatchDialog() {
+        val d = Dialog(this)
+        val box = col().apply {
+            setPadding(dp(18), dp(16), dp(18), dp(18))
+            background = shape(surface(), 20)
+        }
+        box.addView(txt("إضافة مباراة", 21f, ink(), true, Gravity.CENTER))
+        box.addView(txt("أدخل بيانات المباراة الأساسية", 12f, muted(), false, Gravity.CENTER).apply { setPadding(0, dp(4), 0, dp(12)) })
+
+        fun field(hint: String): EditText = EditText(this).apply {
+            this.hint = hint
+            setTextColor(ink()); setHintTextColor(muted()); textSize = 14f
+            background = shape(surface2(), 11, line())
+            setPadding(dp(12), 0, dp(12), 0)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        }
+
+        val title = field("اسم البطولة / المباراة")
+        val home = field("الفريق الأول")
+        val away = field("الفريق الثاني")
+        val venue = field("ملعب المباراة")
+        box.addView(title, LinearLayout.LayoutParams(-1, dp(48)))
+        box.addView(home, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        box.addView(away, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        box.addView(venue, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+
+        var homeColor = green
+        var awayColor = blue
+        val colorRow = row().apply { setPadding(0, dp(10), 0, 0) }
+        val hc = button("لون ا
